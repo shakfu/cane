@@ -2,7 +2,6 @@
 #define CANE_LOG_HPP
 
 #include <stdexcept>
-#include <stacktrace>
 #include <filesystem>
 
 #include <iostream>
@@ -226,10 +225,6 @@ namespace cane {
 	template <typename... Ts>
 	[[noreturn]] inline void die(LogInfo info, Ts&&... args) {
 		std::stringstream ss;
-
-		auto trace = std::stacktrace::current();
-		ss << trace;
-
 		cane::log(ss, LogKind::Fail, info, std::forward<Ts>(args)...);
 
 		throw Fatal { ss.str() };

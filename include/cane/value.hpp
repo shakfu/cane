@@ -66,16 +66,6 @@ namespace cane {
 	using Value =
 		std::variant<std::monostate, Scalar, String, Rhythm, Melody, Sequence>;
 
-	constexpr std::ostream& operator<<(std::ostream& os, cane::Value value) {
-		value |
-			cane::match {
-				[&](auto x) { os << x; },
-				[&](std::monostate) { os << "(empty)"; },
-			};
-
-		return os;
-	}
-
 	constexpr std::ostream& operator<<(std::ostream& os, Event ev) {
 		os << "Event { ";
 		os << "key: " << ev.timestamp << ", ";
@@ -101,6 +91,18 @@ namespace cane {
 
 	constexpr std::ostream& operator<<(std::ostream& os, Melody melody) {
 		return format_container(os, melody);
+	}
+
+	// Must follow the overloads above. Otherwise `os << x` for a Sequence
+	// converts back to Value and recurses until the stack overflows.
+	constexpr std::ostream& operator<<(std::ostream& os, cane::Value value) {
+		value |
+			cane::match {
+				[&](auto x) { os << x; },
+				[&](std::monostate) { os << "(empty)"; },
+			};
+
+		return os;
 	}
 
 }  // namespace cane

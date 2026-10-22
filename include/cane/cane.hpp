@@ -8,5 +8,6 @@
 #include <cane/parse.hpp>
 #include <cane/ops.hpp>
 #include <cane/passes.hpp>
+#include <cane/session.hpp>
 
 #endif

@@ -344,37 +344,6 @@ namespace cane {
 					);
 				} break;
 
-				case SymbolKind::Let: {
-					lx.discard();  // Skip `let`
-
-					// Binding name
-					auto identifier =
-						lx.take_if_kind_opt(SymbolKind::Identifier);
-
-					cane::report_if(
-						not identifier.has_value(),
-						ReportKind::Syntactical,
-						"expected an identifier"
-					);
-
-					auto binding = std::make_shared<Node>(
-						SymbolKind::Identifier,
-						identifier.value().sv,
-						TypeKind::None
-					);
-
-					// Reset binding power and parse body
-					auto body = parse_expression(bp.value().right);
-
-					return std::make_shared<Node>(
-						SymbolKind::Let,
-						symbol.sv,
-						TypeKind::None,
-						binding,
-						body
-					);
-				} break;
-
 				default: break;
 			}
 
@@ -424,7 +393,22 @@ namespace cane {
 				return std::nullopt;
 			}
 
+			cane::report_if(
+				symbol.kind == SymbolKind::Assign and
+					lhs->kind != SymbolKind::Identifier,
+				ReportKind::Syntactical,
+				"expected an identifier before `=`"
+			);
+
 			lx.discard();
+
+			// A trailing `;` is allowed, so a line copied from a file also
+			// works in the REPL.
+			if (symbol.kind == SymbolKind::Block and
+				lx.peek_is_kind(SymbolKind::EndFile)) {
+				return lhs;
+			}
+
 			auto rhs = parse_expression(bp.value().right);
 
 			return std::make_shared<Node>(

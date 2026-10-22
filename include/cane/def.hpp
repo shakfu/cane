@@ -105,7 +105,7 @@ namespace cane {
 #define CANE_PRECEDENCE_KINDS \
 	X(None, "none", 0) \
 \
-	X(Last, "last", 1) \
+	X(Last, "last", 0) /* Same level as the previous symbol. */ \
 	X(Incr, "incr", 1)
 
 #define X(x, y, z) x = z,
@@ -220,11 +220,10 @@ namespace cane {
 	X(Block, ";", Infix, Incr, Right) \
 	X(Send, "~>", Infix, Incr, Left) \
 \
-	X(Let, "let", Primary, Incr, Right) \
+	X(Assign, "=", Infix, Incr, Right) \
 	X(Function, "function", Primary, Incr, Right) \
 \
 	X(Layer, "$", Infix, Last, Left) \
-	X(Map, "@", Infix, Incr, Left) \
 \
 	X(Concatenate, ",", Infix, Incr, Left) \
 \
@@ -248,6 +247,8 @@ namespace cane {
 	X(Mul, "*", Infix, Incr, Left) \
 	X(Div, "/", Infix, Last, Left) \
 \
+	/* Just above `:`, so `bd@3:8` is `bd@(3:8)` and `bd@!!**2` maps first. */ \
+	X(Map, "@", Infix, Incr, Left) \
 	X(Euclidean, ":", Infix, Incr, Left) \
 \
 	X(LCM, "lcm", Infix, Incr, Left) \
@@ -327,9 +328,6 @@ namespace cane {
 	X(TailMelody, "melody tail", Operator, None, None) \
 \
 	/* RHYTHM */ \
-	X(MapRhythmMelody, "rhythm map", Operator, None, None) \
-	X(MapRhythmScalar, "rhythm map", Operator, None, None) \
-\
 	X(LeftShiftRhythmScalar, "rhythm lshift", Operator, None, None) \
 	X(RightShiftRhythmScalar, "rhythm rshift", Operator, None, None) \
 \
@@ -352,6 +350,12 @@ namespace cane {
 	X(LayerSequenceSequence, "sequence layer", Operator, None, None) \
 \
 	X(MulSequenceScalar, "sequence mul", Operator, None, None) \
+	X(AddSequenceScalar, "sequence add", Operator, None, None) \
+	X(SubSequenceScalar, "sequence sub", Operator, None, None) \
+	X(RepeatSequenceScalar, "sequence repeat", Operator, None, None) \
+	X(LeftShiftSequenceScalar, "sequence lshift", Operator, None, None) \
+	X(RightShiftSequenceScalar, "sequence rshift", Operator, None, None) \
+	X(ReverseSequence, "sequence reverse", Operator, None, None) \
 	X(DivSequenceScalar, "sequence div", Operator, None, None) \
 \
 	X(HeadSequence, "sequence head", Operator, None, None) \

@@ -1,0 +1,45 @@
+(* Cane grammar, as implemented by include/cane/lex.hpp and parse.hpp.
+   Precedence is not encoded here: see the operator table in README.md.
+   Whitespace may appear between any two tokens. *)
+
+(* Lexical *)
+comment    = "#!" , { ? any character except newline ? } ;
+number     = digit , { digit } | note ;
+(* Scientific pitch, any case: `C4` is 60. Not followed by a letter,
+   digit or "_", else it is an identifier. *)
+note       = ? a-g or A-G ? , [ "#" | "b" ] , digit ;
+string     = '"' , { ? any character except '"' ? } , '"' ;
+identifier = ( letter | "_" ) , { letter | digit | "_" } ;  (* not a keyword or note *)
+
+keyword = "lcm" | "gcd" | "or" | "xor" | "and" | "head" | "tail"
+        | type ;
+
+type = "num" | "number" | "str" | "string" | "rhy" | "rhythm"
+     | "mel" | "melody" | "seq" | "sequence" | "pat" | "pattern" ;
+
+(* A run of steps is one rhythm literal: `!.!.` and `! . ! .` are equal. *)
+rhythm = step , { step } ;
+step   = "!" | "." ;
+
+(* Program *)
+program = [ expression , [ ";" ] ] ;
+
+expression = primary
+           | prefix , expression
+           | expression , postfix
+           | expression , infix , expression
+           | identifier , "=" , expression       (* binding *)
+           | expression , expression ;  (* call: `f a` *)
+
+primary = number | string | identifier | rhythm
+        | "(" , expression , ")"
+        | "\" , identifier , "->" , type , expression ;  (* function *)
+
+prefix  = "+" | "-" | "~" | "'" | "&" | "head" | "tail" ;
+postfix = "++" | "--" ;
+
+infix = ";" | "~>" | "$" | "," | "@"
+      | "or" | "xor" | "and"
+      | "**" | "<<" | ">>"
+      | "+" | "-" | "*" | "/"
+      | ":" | "lcm" | "gcd" | "?" ;  (* `;` and `=` group right to left *)

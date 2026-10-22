@@ -57,5 +57,3 @@ dkms.conf
 # Misc
 build/
 .cache/
-cane.dot
-cane.png

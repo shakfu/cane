@@ -7,6 +7,7 @@
 #include <random>
 #include <ranges>
 
+#include <cane/log.hpp>
 #include <cane/value.hpp>
 
 namespace cane {
@@ -221,7 +222,7 @@ namespace cane {
 	template <typename T>
 	inline T scalar_sub(T v, size_t scalar) {
 		return v |
-			std::views::transform(std::bind_front(std::minus {}, scalar)) |
+			std::views::transform(std::bind_back(std::minus {}, scalar)) |
 			std::ranges::to<T>();
 	}
 
@@ -235,7 +236,7 @@ namespace cane {
 	template <typename T>
 	inline T scalar_div(T v, size_t scalar) {
 		return v |
-			std::views::transform(std::bind_front(std::divides {}, scalar)) |
+			std::views::transform(std::bind_back(std::divides {}, scalar)) |
 			std::ranges::to<T>();
 	}
 
@@ -244,7 +245,7 @@ namespace cane {
 		// TODO: Handle negative numbers
 
 		std::random_device rd;
-		std::mt19937 rng;
+		std::mt19937 rng { rd() };
 
 		std::uniform_int_distribution dist(min, max);
 
@@ -254,16 +255,19 @@ namespace cane {
 	template <typename T>
 	inline int64_t choice(T lhs, T rhs) {
 		std::random_device rd;
-		std::mt19937 rng;
+		std::mt19937 rng { rd() };
 
 		std::bernoulli_distribution dist(0.5f);
 
 		return dist(rng) ? lhs : rhs;
 	}
 
+	// Scaling only durations left start times unchanged, so events overlapped
+	// or left gaps instead of the sequence slowing down or speeding up.
 	template <typename T>
 	inline T timemul(T v, size_t scalar) {
 		for (auto& ev: v) {
+			ev.timestamp *= scalar;
 			ev.duration *= scalar;
 		}
 
@@ -273,10 +277,103 @@ namespace cane {
 	template <typename T>
 	inline T timediv(T v, size_t scalar) {
 		for (auto& ev: v) {
+			ev.timestamp /= scalar;
 			ev.duration /= scalar;
 		}
 
 		return v;
+	}
+
+	// Sequences
+
+	// End of the last event: the length of one loop.
+	template <typename T>
+	inline TimeUnit length(const T& seq) {
+		TimeUnit end { 0 };
+
+		for (const auto& ev: seq) {
+			end = std::max(end, ev.timestamp + ev.duration);
+		}
+
+		return end;
+	}
+
+	template <typename T>
+	inline T sort_by_time(T seq) {
+		std::ranges::stable_sort(seq, {}, &Event::timestamp);
+		return seq;
+	}
+
+	// Rests keep their note: they are never sent.
+	template <typename T>
+	inline T transpose(T seq, Scalar n) {
+		for (auto& ev: seq) {
+			if (ev.kind == EventKind::Rest) {
+				continue;
+			}
+
+			auto note = ev.note + n;
+
+			if (note < 0 or note > 127) {
+				cane::report(
+					ReportKind::Eval,
+					"note {} transposed by {} is outside 0-127",
+					ev.note,
+					n
+				);
+			}
+
+			ev.note = static_cast<uint8_t>(note);
+		}
+
+		return seq;
+	}
+
+	template <typename T>
+	inline T repeat_sequence(T seq, Scalar n) {
+		if (n < 0) {
+			cane::report(ReportKind::Eval, "cannot repeat {} times", n);
+		}
+
+		auto len = length(seq);
+		T out;
+
+		for (Scalar i = 0; i < n; ++i) {
+			for (auto ev: seq) {
+				ev.timestamp += len * i;
+				out.push_back(ev);
+			}
+		}
+
+		return out;
+	}
+
+	// Shifts every event later by `shift` (earlier if negative), wrapping at
+	// the loop length.
+	template <typename T>
+	inline T rotate_sequence(T seq, TimeUnit shift) {
+		auto len = length(seq);
+
+		if (len == TimeUnit { 0 }) {
+			return seq;
+		}
+
+		for (auto& ev: seq) {
+			ev.timestamp = ((ev.timestamp + shift) % len + len) % len;
+		}
+
+		return sort_by_time(std::move(seq));
+	}
+
+	template <typename T>
+	inline T reverse_sequence(T seq) {
+		auto len = length(seq);
+
+		for (auto& ev: seq) {
+			ev.timestamp = len - (ev.timestamp + ev.duration);
+		}
+
+		return sort_by_time(std::move(seq));
 	}
 
 	template <typename T>

@@ -1,6 +1,7 @@
 #ifndef CANE_PASSES_HPP
 #define CANE_PASSES_HPP
 
+#include <charconv>
 #include <memory>
 #include <print>
 
@@ -263,11 +264,11 @@ namespace cane {
 				std::print("\"{}\"", node->sv);
 			} break;
 
-			case SymbolKind::Let: {
-				std::print("{}let ", indent);
+			case SymbolKind::Assign: {
+				std::print("{}", indent);
 				CANE_UNUSED(pass_trace_walk(cfg, node->lhs, depth + 1));
 
-				std::print(" ");
+				std::print(" = ");
 				CANE_UNUSED(pass_trace_walk(cfg, node->rhs, depth + 1));
 			} break;
 
@@ -374,7 +375,7 @@ namespace cane {
 				);
 			} break;
 
-			case SymbolKind::Let: {
+			case SymbolKind::Assign: {
 				auto lhs = pass_validate_walk(cfg, node->lhs);
 				auto rhs = pass_validate_walk(cfg, node->rhs);
 
@@ -448,15 +449,28 @@ namespace cane {
 		size_t depth
 	);
 
+	// Resolve against existing bindings and return the bindings left at the
+	// top level. Each block in a top-level `;` chain shares that scope, so
+	// its bindings are returned; a parenthesised block keeps its own scope.
+	[[nodiscard]] inline std::tuple<BoxNode, BindingEnvironment>
+	resolve_bindings(
+		Configuration cfg, BoxNode node, BindingEnvironment bindings
+	) {
+		if (node == nullptr or node->kind != SymbolKind::Block) {
+			return pass_binding_resolution_walk(cfg, node, bindings, 0);
+		}
+
+		auto [lhs, lhs_env] =
+			pass_binding_resolution_walk(cfg, node->lhs, bindings, 0);
+
+		return resolve_bindings(cfg, node->rhs, lhs_env);
+	}
+
 	[[nodiscard]] inline BoxNode
 	pass_binding_resolution(Configuration cfg, BoxNode node) {
 		CANE_FUNC();
 
-		BindingEnvironment bindings;
-
-		auto [root, root_env] =
-			pass_binding_resolution_walk(cfg, node, bindings, 0);
-
+		auto [root, root_env] = resolve_bindings(cfg, node, {});
 		return root;
 	}
 
@@ -505,7 +519,7 @@ namespace cane {
 				return { new_node, bindings };
 			} break;
 
-			case SymbolKind::Let: {
+			case SymbolKind::Assign: {
 				auto binding = new_node->lhs;
 
 				auto [assign, assign_env] = pass_binding_resolution_walk(
@@ -521,7 +535,7 @@ namespace cane {
 					deepcopy(assign, &Node::lhs, &Node::rhs)
 				);
 
-				// Return the inner node so that `let` becomes it's own value.
+				// Return the inner node so that `=` becomes it's own value.
 				return { assign, bindings };
 			} break;
 
@@ -744,9 +758,6 @@ namespace cane {
  		CANE_TYPE_REMAP(Tail, Melody, None, Melody, TailMelody);
 
  		/* Rhythm */
- 		CANE_TYPE_REMAP(Map, Rhythm, Melody, Sequence, MapRhythmMelody);
- 		CANE_TYPE_REMAP(Map, Rhythm, Scalar, Sequence, MapRhythmScalar);
-
  		CANE_TYPE_REMAP(LeftShift, Rhythm, Scalar, Rhythm, LeftShiftRhythmScalar);
  		CANE_TYPE_REMAP(RightShift, Rhythm, Scalar, Rhythm, RightShiftRhythmScalar);
 
@@ -769,6 +780,13 @@ namespace cane {
 
  		CANE_TYPE_REMAP(Mul, Sequence, Scalar, Sequence, MulSequenceScalar);
  		CANE_TYPE_REMAP(Div, Sequence, Scalar, Sequence, DivSequenceScalar);
+
+ 		CANE_TYPE_REMAP(Add, Sequence, Scalar, Sequence, AddSequenceScalar);
+ 		CANE_TYPE_REMAP(Sub, Sequence, Scalar, Sequence, SubSequenceScalar);
+ 		CANE_TYPE_REMAP(Repeat, Sequence, Scalar, Sequence, RepeatSequenceScalar);
+ 		CANE_TYPE_REMAP(LeftShift, Sequence, Scalar, Sequence, LeftShiftSequenceScalar);
+ 		CANE_TYPE_REMAP(RightShift, Sequence, Scalar, Sequence, RightShiftSequenceScalar);
+ 		CANE_TYPE_REMAP(Reverse, Sequence, None, Sequence, ReverseSequence);
 
  		CANE_TYPE_REMAP(Send, Sequence, String, Pattern, SendSequenceString);
 
@@ -881,7 +899,7 @@ namespace cane {
 				return { TypeKind::Function, new_node, bindings };
 			} break;
 
-			case SymbolKind::Let: {
+			case SymbolKind::Assign: {
 				auto binding = new_node->lhs;
 
 				auto [assign, assign_node, assign_env] =
@@ -1114,6 +1132,11 @@ namespace cane {
 				Scalar s = 0;
 
 				auto number_sv = node->sv;
+
+				if (auto note = note_prefix(number_sv); note.has_value()) {
+					return Scalar { note->first };
+				}
+
 				auto [ptr, err] = std::from_chars(
 					number_sv.data(), number_sv.data() + number_sv.size(), s
 				);
@@ -1154,7 +1177,7 @@ namespace cane {
 
 			// NOTE: These should already have been resolved by semantic
 			// analysis pass so a function or binding don't need to be walked.
-			case SymbolKind::Let:
+			case SymbolKind::Assign:
 			case SymbolKind::Function: {
 				return std::monostate {};
 			} break;
@@ -1437,23 +1460,38 @@ namespace cane {
 					std::move(std::get<Scalar>(rhs))
 				);
 
+			// Sequences
+			case SymbolKind::AddSequenceScalar:
+				return transpose(
+					std::move(std::get<Sequence>(lhs)), std::get<Scalar>(rhs)
+				);
+
+			case SymbolKind::SubSequenceScalar:
+				return transpose(
+					std::move(std::get<Sequence>(lhs)), -std::get<Scalar>(rhs)
+				);
+
+			case SymbolKind::RepeatSequenceScalar:
+				return repeat_sequence(
+					std::move(std::get<Sequence>(lhs)), std::get<Scalar>(rhs)
+				);
+
+			case SymbolKind::LeftShiftSequenceScalar:
+				return rotate_sequence(
+					std::move(std::get<Sequence>(lhs)),
+					-std::get<Scalar>(rhs) * (MINUTE / cfg.bpm)
+				);
+
+			case SymbolKind::RightShiftSequenceScalar:
+				return rotate_sequence(
+					std::move(std::get<Sequence>(lhs)),
+					std::get<Scalar>(rhs) * (MINUTE / cfg.bpm)
+				);
+
+			case SymbolKind::ReverseSequence:
+				return reverse_sequence(std::move(std::get<Sequence>(lhs)));
+
 			// Mapping
-			case SymbolKind::MapRhythmScalar: {
-				return map<Sequence>(
-					MINUTE / cfg.bpm,
-					std::move(std::get<Rhythm>(lhs)),
-					Melody { std::get<Scalar>(rhs) }
-				);
-			} break;
-
-			case SymbolKind::MapRhythmMelody: {
-				return map<Sequence>(
-					MINUTE / cfg.bpm,
-					std::move(std::get<Rhythm>(lhs)),
-					std::move(std::get<Melody>(rhs))
-				);
-			} break;
-
 			case SymbolKind::MapScalarRhythm: {
 				return map<Sequence>(
 					MINUTE / cfg.bpm,
@@ -1466,7 +1504,7 @@ namespace cane {
 				return map<Sequence>(
 					MINUTE / cfg.bpm,
 					std::move(std::get<Rhythm>(rhs)),
-					Melody { std::get<Scalar>(lhs) }
+					std::move(std::get<Melody>(lhs))
 				);
 			} break;
 

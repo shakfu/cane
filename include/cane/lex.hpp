@@ -1,8 +1,10 @@
 #ifndef CANE_LEX_HPP
 #define CANE_LEX_HPP
 
+#include <cctype>
 #include <optional>
 #include <string_view>
+#include <utility>
 #include <iostream>
 
 #include <cane/def.hpp>
@@ -27,6 +29,39 @@ namespace cane {
 	};
 
 	constexpr std::string_view DEFAULT_SYMBOL_SV = "(empty)";
+
+	// A note name at the start of `sv`, in scientific pitch (`C4` is 60).
+	// Case insensitive, with an optional `#` or `b`. Returns the MIDI number
+	// and the length matched.
+	inline std::optional<std::pair<int, size_t>> note_prefix(std::string_view sv
+	) {
+		constexpr int semitones[] = { 9, 11, 0, 2, 4, 5, 7 };  // A to G.
+
+		if (sv.empty()) {
+			return std::nullopt;
+		}
+
+		char letter = static_cast<char>(std::tolower(static_cast<unsigned char>(sv[0])));
+
+		if (letter < 'a' or letter > 'g') {
+			return std::nullopt;
+		}
+
+		int note = semitones[letter - 'a'];
+		size_t len = 1;
+
+		if (len < sv.size() and (sv[len] == '#' or sv[len] == 'b')) {
+			note += sv[len] == '#' ? 1 : -1;
+			len++;
+		}
+
+		if (len >= sv.size() or sv[len] < '0' or sv[len] > '9') {
+			return std::nullopt;
+		}
+
+		note += (sv[len] - '0' + 1) * 12;
+		return std::pair { note, len + 1 };
+	}
 
 	constexpr std::ostream& operator<<(std::ostream& os, Symbol s) {
 		std::print(
@@ -67,8 +102,10 @@ namespace cane {
 		}
 
 		// Basic stream interaction
+		// `it > end` let `str_peek` read the byte after the source, so a
+		// trailing comment consumed it and left `it` past `end`.
 		[[nodiscard]] bool is_eof() {
-			return it > end;
+			return it >= end;
 		}
 
 		[[nodiscard]] std::optional<char> str_peek() {
@@ -211,6 +248,35 @@ namespace cane {
 		}
 
 		// Cane specific lexer functions
+
+		// A note name is a Number; the evaluator converts it. `c4x` and `c45`
+		// are identifiers.
+		std::optional<Symbol> produce_note() {
+			auto match = note_prefix({ it, end });
+
+			if (not match.has_value()) {
+				return std::nullopt;
+			}
+
+			auto [note, len] = match.value();
+			auto after = it + static_cast<std::ptrdiff_t>(len);
+
+			if (after < end and (std::isalnum(static_cast<unsigned char>(*after)) or *after == '_')) {
+				return std::nullopt;
+			}
+
+			std::string_view sv { it, after };
+
+			if (note > 127) {
+				cane::report(
+					ReportKind::Lexical, "note `{}` is above 127 (G9)", sv
+				);
+			}
+
+			it = after;
+			return Symbol { .kind = SymbolKind::Number, .sv = sv };
+		}
+
 		std::optional<Symbol> produce_identifier() {
 			// TODO: Can we just call produce_while and allow digits at the
 			// beginning of identifiers?
@@ -238,15 +304,11 @@ namespace cane {
 			// We could have used `cane_produce_str` here to handle these cases
 			// but we want "maximal munch" meaning that we lex the entire
 			// identifier before trying to classify it. Why? because if we
-			// didn't, an identifier like "letfoo" would actually be lexed
-			// as 2 seperate tokens because it sees `let` and stops there.
+			// didn't, an identifier like "lcmfoo" would actually be lexed
+			// as 2 seperate tokens because it sees `lcm` and stops there.
 
 			// Keywords
-			if (symbol.sv == CANE_CSTR("let")) {
-				symbol.kind = SymbolKind::Let;
-			}
-
-			else if (symbol.sv == CANE_CSTR("lcm")) {
+			if (symbol.sv == CANE_CSTR("lcm")) {
 				symbol.kind = SymbolKind::LCM;
 			}
 
@@ -337,6 +399,9 @@ namespace cane {
 				})
 				.or_else([&] {
 					return produce_str(SymbolKind::Reverse, CANE_CSTR("'"));
+				})
+				.or_else([&] {
+					return produce_str(SymbolKind::Assign, CANE_CSTR("="));
 				})
 				.or_else([&] {
 					return produce_str(SymbolKind::Map, CANE_CSTR("@"));
@@ -457,11 +522,8 @@ namespace cane {
 		////////////////
 
 		// With fixup
+		// At the end of input the lookahead is EndFile.
 		[[nodiscard]] std::optional<Symbol> peek_opt(SymbolFixup fixup) {
-			if (not str_peek()) {
-				return std::nullopt;
-			}
-
 			return Symbol { .kind = fixup(lookahead.kind), .sv = lookahead.sv };
 		}
 
@@ -510,6 +572,7 @@ namespace cane {
 				.or_else([&] { return produce_whitespace(); })
 				.or_else([&] { return produce_comment(); })
 				.or_else([&] { return produce_sigil(); })
+				.or_else([&] { return produce_note(); })
 				.or_else([&] { return produce_identifier(); })
 				.or_else([&] { return produce_number(); })
 				.or_else([&] { return produce_quoted(); })
