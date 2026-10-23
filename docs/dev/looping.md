@@ -8,13 +8,13 @@ Status: proposal. Goal: support polyrhythm.
 - Every step lasts one beat: `MINUTE / bpm` (500 ms at 120 BPM).
 - The player loops the whole sequence (REPL, `--watch`) or plays it once
   (`cane FILE`). See `include/cane/midi.hpp`.
-- `a $ b` concatenates the two event lists (`concatenate` in
+- `a | b` concatenates the two event lists (`concatenate` in
   `include/cane/ops.hpp`). Neither layer repeats.
 
 So the shorter layer plays once per loop and is then silent:
 
 ```text
-36@3:8 $ 38@!. ~> "drums"
+36@3:8 | 38@!. ~> "drums"
 
 step   1 2 3 4 5 6 7 8
 36     x . . x . . x .
@@ -22,7 +22,7 @@ step   1 2 3 4 5 6 7 8
 ```
 
 `@` already handles unequal lengths differently: `map` cycles the rhythm
-and the melody to the longer of the two. `$` does not.
+and the melody to the longer of the two. `|` does not.
 
 ### Related bug
 Sequence `a, b` uses `join`, which offsets `b` by the latest start time in
@@ -44,11 +44,11 @@ different lengths repeat, so none of them gives polyrhythm. Option 4 does.
 ## Options
 
 ### 1. Cycle shorter layers to the longest
-`$` repeats each layer until it is as long as the longest, cutting the last
+`|` repeats each layer until it is as long as the longest, cutting the last
 repeat short.
 
 ```text
-36@!.. $ 38@!...                loop: 4 steps
+36@!.. | 38@!...                loop: 4 steps
 
 step   1 2 3 4 | 1 2 3 4
 36     x . . x | x . . x        the 3-step layer restarts every 4 steps
@@ -66,10 +66,10 @@ Cons:
 - No polyrhythm.
 
 ### 2. Repeat layers to the least common multiple
-`$` repeats each layer to the LCM of all layer lengths.
+`|` repeats each layer to the LCM of all layer lengths.
 
 ```text
-36@!.. $ 38@!...                loop: lcm(3, 4) = 12 steps
+36@!.. | 38@!...                loop: lcm(3, 4) = 12 steps
 
 step   1 2 3 4 5 6 7 8 9 10 11 12
 36     x . . x . . x . . x  .  .
@@ -88,7 +88,7 @@ Cons:
   each change by up to its whole length.
 - Still no polyrhythm: all layers share one step length.
 
-### 3. Leave `$` as is; repeat by hand
+### 3. Leave `|` as is; repeat by hand
 Users repeat layers themselves, e.g. `36@!.. ** 4`.
 
 Pros:
@@ -104,7 +104,7 @@ This is the only option that gives polyrhythm. It works with any of
 options 1-3.
 
 ```text
-36@!!! fit 4 $ 38@!!!!            3 against 4, loop: 4 steps (2000 ms)
+36@!!! fit 4 | 38@!!!!            3 against 4, loop: 4 steps (2000 ms)
 
 ms     0      500    667    1000   1333   1500
 36     x             x             x
@@ -130,7 +130,7 @@ same result where it is asked for.
 
 ## Recommendation
 Options 2 and 4 together:
-- `$` repeats layers to the LCM of their lengths: polymeter with no layer
+- `|` repeats layers to the LCM of their lengths: polymeter with no layer
   cut short.
 - `fit` rescales a sequence to N steps: polyrhythm.
 
@@ -138,7 +138,7 @@ Option 1 is rejected because it breaks polymeter, which is the more common
 of the two in step-based music. Option 3 leaves both goals to the user.
 
 The cost of option 2 is loop length. Two limits bound it:
-- `$` reports an error if the LCM exceeds 256 steps (128 s at 120 BPM),
+- `|` reports an error if the LCM exceeds 256 steps (128 s at 120 BPM),
   instead of building a loop that long. The error names the layer lengths,
   so the user can adjust them or use `fit`. 256 is a starting value.
 - Later, the player can switch patterns at the end of the longest layer
@@ -149,16 +149,16 @@ The cost of option 2 is loop length. Two limits bound it:
 ### How it looks
 ```text
 #! Polymeter: 3-step and 4-step layers, realigning every 12 steps.
-bd@!.. $ sd@!... ~> "drums"
+bd@!.. | sd@!... ~> "drums"
 
 #! Polyrhythm: 3 kicks against 4 hats in one bar.
-bd@!!! fit 4 $ hh@!!!! ~> "drums"
+bd@!!! fit 4 | hh@!!!! ~> "drums"
 
 #! Triplets over a straight bar: 6 hits in the time of 4 steps.
-hh@!!!!!! fit 4 $ bd@!.!. ~> "drums"
+hh@!!!!!! fit 4 | bd@!.!. ~> "drums"
 
 #! Euclidean polymeter: 5-in-16 against 3-in-8 (lcm 16).
-bd@5:16 $ sd@3:8 ~> "drums"
+bd@5:16 | sd@3:8 ~> "drums"
 ```
 
 ## Implementation
@@ -168,7 +168,7 @@ In `ops.hpp`, offset `rhs` by `length(lhs)` (the largest
 `timestamp + duration`), not by its largest `timestamp`. `length` exists.
 `schedule` in `midi.hpp` computes the same value and should use it.
 
-### 1. `$` repeats to the LCM
+### 1. `|` repeats to the LCM
 In `ops.hpp`, using the existing `length` and `repeat_sequence`:
 
 `layer(lhs, rhs, limit)`:
@@ -185,13 +185,13 @@ The evaluator's four `Layer*` cases call `layer` instead of `concatenate`.
 `limit` is `256 * MINUTE / cfg.bpm`. A `max_loop_steps` field in
 `Configuration` would let users change it later.
 
-`a $ b $ c` groups left to right, so the LCM covers all three:
+`a | b | c` groups left to right, so the LCM covers all three:
 `lcm(lcm(a, b), c)`.
 
 ### 2. `fit`
 - `def.hpp`: add `X(Fit, "fit", Infix, Incr, Left)` after `Layer`. That
-  places it above `$` and below `@`, so `bd@!!! fit 4 $ ...` parses as
-  `((bd@!!!) fit 4) $ ...` without parentheses. Add operator symbols
+  places it above `|` and below `@`, so `bd@!!! fit 4 | ...` parses as
+  `((bd@!!!) fit 4) | ...` without parentheses. Add operator symbols
   `FitSequenceScalar` and `FitPatternScalar`.
 - `lex.hpp`: lex the keyword `fit`, next to `lcm` and `gcd`.
 - `passes.hpp`: add the type rules
@@ -229,9 +229,9 @@ Overflow: `t * target` at 120 BPM and the 256-step limit is about
 
 ### 3. Tests
 `tests/eval.cpp`:
-- `36@!.. $ 38@!...`: 24 events over 6000 ms. Note 36 beats at
+- `36@!.. | 38@!...`: 24 events over 6000 ms. Note 36 beats at
   steps 1, 4, 7, 10; note 38 at 1, 5, 9.
-- `36@3:8 $ 38@!.`: loop 8 steps; note 38 on every odd step.
+- `36@3:8 | 38@!.`: loop 8 steps; note 38 on every odd step.
 - A 7-step layer against a 64-step layer (LCM 448) reports the limit error.
 - `36@!!! fit 4`: starts at 0, 666666, 1333333 us; ends at exactly
   2000000.

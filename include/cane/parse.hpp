@@ -1,8 +1,10 @@
 #ifndef CANE_PARSE_HPP
 #define CANE_PARSE_HPP
 
-#include <string_view>
+#include <algorithm>
 #include <memory>
+#include <string_view>
+#include <vector>
 
 #include <cane/def.hpp>
 #include <cane/log.hpp>
@@ -298,6 +300,29 @@ namespace cane {
 				case SymbolKind::LeftParen: {
 					lx.discard();  // Skip `(`
 
+					// `(op a)` and `(op)` are sections. `(- a)` negates, as in
+					// Haskell.
+					auto op = lx.peek();
+					auto after = lx;
+					after.discard();
+
+					bool bare = after.peek_is_kind(SymbolKind::RightParen);
+
+					if (is_sectionable(op.kind) and
+						(bare or op.kind != SymbolKind::Sub)) {
+						lx.discard();
+
+						auto rhs = bare ?
+							nullptr :
+							parse_expression(binding_power(op.kind)->right);
+
+						if (not lx.discard_if_kind(SymbolKind::RightParen)) {
+							cane::report(ReportKind::Syntactical, "expected `)`");
+						}
+
+						return section(op, nullptr, rhs);
+					}
+
 					auto expr = parse_expression(0);
 
 					if (not lx.discard_if_kind(SymbolKind::RightParen)) {
@@ -305,6 +330,39 @@ namespace cane {
 					}
 
 					return expr;
+				} break;
+
+				// `[a, b]` is a melody. Elements bind tighter than `,`, which
+				// separates them. A trailing `,` is allowed.
+				case SymbolKind::LeftBracket: {
+					lx.discard();  // Skip `[`
+
+					BoxNode melody = std::make_shared<Node>(
+						SymbolKind::Nil, symbol.sv, TypeKind::Melody
+					);
+
+					auto element_bp =
+						binding_power(SymbolKind::Concatenate)->right;
+
+					while (not lx.peek_is_kind(SymbolKind::RightBracket)) {
+						melody = std::make_shared<Node>(
+							SymbolKind::Append,
+							symbol.sv,
+							TypeKind::None,
+							melody,
+							parse_expression(element_bp)
+						);
+
+						if (not lx.discard_if_kind(SymbolKind::Concatenate)) {
+							break;
+						}
+					}
+
+					if (not lx.discard_if_kind(SymbolKind::RightBracket)) {
+						cane::report(ReportKind::Syntactical, "expected `]`");
+					}
+
+					return melody;
 				} break;
 
 				case SymbolKind::Function: {
@@ -362,7 +420,6 @@ namespace cane {
 
 			// Remapping
 			switch (symbol.kind) {
-				case SymbolKind::Add: symbol.kind = SymbolKind::Abs; break;
 				case SymbolKind::Sub: symbol.kind = SymbolKind::Neg; break;
 				default: break;
 			}
@@ -379,7 +436,47 @@ namespace cane {
 			);
 		}
 
-		[[nodiscard]] OptionalBoxNode parse_infix(BoxNode lhs) {
+		static bool is_sectionable(SymbolKind kind) {
+			return is_opfix(OpfixKind::Infix, kind) and
+				kind != SymbolKind::Block and kind != SymbolKind::Assign and
+				kind != SymbolKind::Call;
+		}
+
+		// `lhs op rhs` as a function of whichever side is null. The lexer
+		// cannot produce these parameter names, so they capture no user name.
+		static BoxNode section(Symbol op, BoxNode lhs, BoxNode rhs) {
+			auto param = [](std::string_view sv) {
+				return std::make_shared<Node>(
+					SymbolKind::Identifier, sv, TypeKind::None
+				);
+			};
+
+			auto function = [&](std::string_view sv, BoxNode body) {
+				return std::make_shared<Node>(
+					SymbolKind::Function, op.sv, TypeKind::Function, param(sv), body
+				);
+			};
+
+			BoxNode body = std::make_shared<Node>(
+				op.kind,
+				op.sv,
+				TypeKind::None,
+				lhs == nullptr ? param("%lhs") : lhs,
+				rhs == nullptr ? param("%rhs") : rhs
+			);
+
+			if (rhs == nullptr) {
+				body = function("%rhs", body);
+			}
+
+			if (lhs == nullptr) {
+				body = function("%lhs", body);
+			}
+
+			return body;
+		}
+
+		[[nodiscard]] OptionalBoxNode parse_infix(BoxNode lhs, size_t min_bp) {
 			// CANE_FUNC();
 
 			Symbol symbol = lx.peek();
@@ -393,14 +490,45 @@ namespace cane {
 				return std::nullopt;
 			}
 
-			cane::report_if(
-				symbol.kind == SymbolKind::Assign and
+			// `f x y = body` defines `f = \x -> \y -> body`. The parameters
+			// parsed as calls: `(f x) y`.
+			std::vector<BoxNode> params;
+
+			if (symbol.kind == SymbolKind::Assign) {
+				while (lhs->kind == SymbolKind::Call) {
+					cane::report_if(
+						lhs->rhs->kind != SymbolKind::Identifier,
+						ReportKind::Syntactical,
+						"expected a parameter name, not `{}`",
+						lhs->rhs->sv
+					);
+
+					cane::report_if(
+						std::ranges::contains(params, lhs->rhs->sv, &Node::sv),
+						ReportKind::Syntactical,
+						"duplicate parameter `{}`",
+						lhs->rhs->sv
+					);
+
+					params.push_back(lhs->rhs);
+					lhs = lhs->lhs;
+				}
+
+				cane::report_if(
 					lhs->kind != SymbolKind::Identifier,
-				ReportKind::Syntactical,
-				"expected an identifier before `=`"
-			);
+					ReportKind::Syntactical,
+					"expected an identifier before `=`"
+				);
+			}
 
 			lx.discard();
+
+			// `(a op)` is a section only as the whole of the parentheses, so
+			// `(1 + 2 *)` is an error.
+			if (min_bp == 0 and is_sectionable(symbol.kind) and
+				lx.peek_is_kind(SymbolKind::RightParen)) {
+				return section(symbol, lhs, nullptr);
+			}
 
 			// A trailing `;` is allowed, so a line copied from a file also
 			// works in the REPL.
@@ -410,6 +538,13 @@ namespace cane {
 			}
 
 			auto rhs = parse_expression(bp.value().right);
+
+			// `params` is last to first, so the first parameter wraps last.
+			for (const auto& param: params) {
+				rhs = std::make_shared<Node>(
+					SymbolKind::Function, symbol.sv, TypeKind::Function, param, rhs
+				);
+			}
 
 			return std::make_shared<Node>(
 				symbol.kind, symbol.sv, TypeKind::None, lhs, rhs
@@ -482,7 +617,7 @@ namespace cane {
 
 				// Parse everything else.
 				node = parse_postfix(node.value()).or_else([&] {
-					return parse_infix(node.value());
+					return parse_infix(node.value(), min_bp);
 				});
 
 				cane::report_if(

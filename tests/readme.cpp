@@ -50,6 +50,8 @@ namespace {
 			for (auto note: *melody) {
 				out += (out.empty() ? "" : ", ") + std::to_string(note);
 			}
+
+			out = "[" + out + "]";
 		}
 
 		else if (const auto* scalar = std::get_if<cane::Scalar>(&value)) {

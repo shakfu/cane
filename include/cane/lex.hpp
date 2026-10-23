@@ -329,14 +329,6 @@ namespace cane {
 				symbol.kind = SymbolKind::And;
 			}
 
-			else if (symbol.sv == CANE_CSTR("head")) {
-				symbol.kind = SymbolKind::Head;
-			}
-
-			else if (symbol.sv == CANE_CSTR("tail")) {
-				symbol.kind = SymbolKind::Tail;
-			}
-
 			// Type annotations
 			else if (symbol.sv == CANE_CSTR("num") or
 					 symbol.sv == CANE_CSTR("number")) {
@@ -372,10 +364,7 @@ namespace cane {
 		}
 
 		std::optional<Symbol> produce_sigil() {
-			return produce_str(SymbolKind::Coerce, CANE_CSTR("&"))
-				.or_else([&] {
-					return produce_str(SymbolKind::Arrow, CANE_CSTR("->"));
-				})
+			return produce_str(SymbolKind::Arrow, CANE_CSTR("->"))
 				.or_else([&] {
 					return produce_str(SymbolKind::Send, CANE_CSTR("~>"));
 				})
@@ -389,7 +378,7 @@ namespace cane {
 					return produce_str(SymbolKind::Random, CANE_CSTR("?"));
 				})
 				.or_else([&] {
-					return produce_str(SymbolKind::Layer, CANE_CSTR("$"));
+					return produce_str(SymbolKind::Layer, CANE_CSTR("|"));
 				})
 				.or_else([&] {
 					return produce_str(SymbolKind::Function, CANE_CSTR("\\"));

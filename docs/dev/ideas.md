@@ -50,12 +50,13 @@ combinations are in `docs/types.md`.
 | `{ a b c }`: random choice | `a ? b`, scalars only |
 | `<`, `>`: rotate | `<<`, `>>` |
 | `a b`: implicit concatenation | `a , b`. Whitespace inside a rhythm is ignored, so `!.!! !.!.` is 8 steps |
-| `[ a b ]`: layer sequences into a pattern | `a $ b` layers; `~> "name"` makes a pattern |
+| `[ a b ]`: layer sequences into a pattern | `a \| b` layers; `~> "name"` makes a pattern |
 | `melody @ rhythm`, `rhythm @ melody` | `note@rhythm` only, e.g. `bd@3:8` |
 | `seq * n`, `seq / n`: scale time relative to the parent | Scales timestamps and durations by `n`, in absolute time |
 
 ## Not yet implemented
-- Function calls: they parse and type-check, but evaluation fails.
+- Recursion: a function body cannot name the function.
+- Checking the type annotation in `\x -> T a`. It is parsed and dropped.
 - `**`, `<<`, `>>`, `'`, `+`, `-` on patterns: no type rule. Sequences have them.
 - Random choice over melodies, rhythms, sequences and patterns.
 - `,` on patterns concatenates whole patterns. The plan concatenated them
@@ -70,5 +71,28 @@ combinations are in `docs/types.md`.
   sequence (`sd@..!.**2`). Sequence `**`, `<<`, `>>`, `'`, `+`, `-` were
   added for that. A brief `bd:3:8` form was dropped: rhythms are values, so
   `bd:groove` or `bd:3` could not tell note from hits.
+- `|` replaced `$` for layering. In Haskell and Tidal, `$` is function
+  application, so `kick $ snare` read as "apply kick to snare".
+- `f x y = a` defines `f = \x -> \y -> a`. Binding resolution reduces each
+  call by substituting the argument into the body. The evaluator already
+  saw only inlined bindings, so a closure environment was not needed. Calls
+  inside a function body wait until that function is applied: there, an
+  argument may name a parameter that an inner function would capture.
+- Sections follow Haskell. `(- a)` negates, so `(-1):8` keeps working.
+  Absolute value is the builtin function `abs`, as in Haskell, so prefix
+  `+` is gone and `(+ a)` is unambiguous.
+- `head` takes only a melody and returns a number, as in Haskell. Rhythms,
+  sequences and patterns have no element type, so they use `take 1`.
+- Melodies are `[a, b]`, as in Haskell. `,` only concatenates, and `&`
+  (scalar to melody) is gone: `[60]` replaces it. Brackets were unused, so
+  `[60]` needs no trailing comma, unlike Python's `(60,)`.
+- `abs`, `head`, `tail`, `take` and `drop` are builtin functions, not keywords. They are
+  bindings made in `session.hpp`, so they can be passed and rebound like
+  user functions, and bind as calls: `head x , y` is `(head x) , y`. The left section `(a op)` is only the whole of the
+  parentheses: `(1 + 2 *)` is an error.
+- Calls bind tightest, as in Haskell: `f 3 + 1` is `(f 3) + 1`. They were
+  just above `,`, which made it `f (3 + 1)`.
+- `a:b:n` shifts a Euclidean rhythm left, matching Tidal's `bd(a,b,n)`,
+  so patterns copy across. It is `(a:b):n`, so `n` works on any rhythm.
 - Note names have no octave -1 (MIDI 0-11). `C-1` would make `e-1` (one-letter
   binding minus 1) silently lex as a note. If needed, spell it `C_1`.

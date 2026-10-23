@@ -22,7 +22,7 @@ foreach(expected "syntax error" "unknown binding `q`" "unknown binding `w`")
 	endif()
 endforeach()
 
-foreach(name x y z t)
+foreach(name x y z t f)
 	string(FIND "${err}" "unknown binding `${name}`" at)
 	if(NOT at EQUAL -1)
 		message(FATAL_ERROR "`${name}` did not persist:\n${err}")

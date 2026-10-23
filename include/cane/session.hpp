@@ -22,12 +22,59 @@ namespace cane {
 		cr = 49; rd = 51; tb = 54; cb = 56; sh = 70;
 	)";
 
+	// Builtin functions. Their bodies use operators the lexer does not
+	// produce, so they cannot be written in the prelude.
+	inline BindingEnvironment builtins() {
+		auto param = [](std::string_view sv) {
+			return std::make_shared<Node>(
+				SymbolKind::Identifier, sv, TypeKind::None
+			);
+		};
+
+		auto function = [&](std::string_view sv, BoxNode body) {
+			return std::make_shared<Node>(
+				SymbolKind::Function, sv, TypeKind::Function, param(sv), body
+			);
+		};
+
+		auto entry = [](std::string_view name, BoxNode fn) {
+			return BindingEntry { name, BindingKind::Binding, 0, fn };
+		};
+
+		// `name` is `\x -> op x`.
+		auto unary = [&](std::string_view name, SymbolKind op) {
+			return entry(
+				name,
+				function(
+					"%x", std::make_shared<Node>(op, name, TypeKind::None, param("%x"))
+				)
+			);
+		};
+
+		// `name` is `\n -> \x -> x op n`, so `take 2 x` reads as in Haskell.
+		auto binary = [&](std::string_view name, SymbolKind op) {
+			auto body = std::make_shared<Node>(
+				op, name, TypeKind::None, param("%x"), param("%n")
+			);
+
+			return entry(name, function("%n", function("%x", body)));
+		};
+
+		return {
+			unary("abs", SymbolKind::Abs),
+			unary("head", SymbolKind::Head),
+			unary("tail", SymbolKind::Tail),
+			binary("take", SymbolKind::Take),
+			binary("drop", SymbolKind::Drop),
+		};
+	}
+
 	// Bindings persist across calls to `eval`. Callers may be on different
 	// threads (REPL and file watcher).
 	class Session {
 		private:
 		Configuration cfg;
-		BindingEnvironment bindings;
+		BindingEnvironment bindings = builtins();
 
 		// Nodes and bindings are views into source text, so all of it is kept.
 		// A deque never relocates its elements.

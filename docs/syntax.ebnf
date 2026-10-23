@@ -11,7 +11,7 @@ note       = ? a-g or A-G ? , [ "#" | "b" ] , digit ;
 string     = '"' , { ? any character except '"' ? } , '"' ;
 identifier = ( letter | "_" ) , { letter | digit | "_" } ;  (* not a keyword or note *)
 
-keyword = "lcm" | "gcd" | "or" | "xor" | "and" | "head" | "tail"
+keyword = "lcm" | "gcd" | "or" | "xor" | "and"
         | type ;
 
 type = "num" | "number" | "str" | "string" | "rhy" | "rhythm"
@@ -21,6 +21,9 @@ type = "num" | "number" | "str" | "string" | "rhy" | "rhythm"
 rhythm = step , { step } ;
 step   = "!" | "." ;
 
+(* Elements bind tighter than `,`. A trailing `,` is allowed. *)
+melody = "[" , [ expression , { "," , expression } , [ "," ] ] , "]" ;
+
 (* Program *)
 program = [ expression , [ ";" ] ] ;
 
@@ -28,17 +31,20 @@ expression = primary
            | prefix , expression
            | expression , postfix
            | expression , infix , expression
-           | identifier , "=" , expression       (* binding *)
-           | expression , expression ;  (* call: `f a` *)
+           | identifier , { identifier } , "=" , expression
+                (* binding; with parameters, a function *)
+           | expression , expression ;  (* call: `f a`, binds tightest *)
 
-primary = number | string | identifier | rhythm
+primary = number | string | identifier | rhythm | melody
         | "(" , expression , ")"
+        | "(" , infix , [ expression ] , ")"  (* section; `(- a)` negates *)
+        | "(" , expression , infix , ")"      (* section *)
         | "\" , identifier , "->" , type , expression ;  (* function *)
 
-prefix  = "+" | "-" | "~" | "'" | "&" | "head" | "tail" ;
+prefix  = "-" | "~" | "'" ;
 postfix = "++" | "--" ;
 
-infix = ";" | "~>" | "$" | "," | "@"
+infix = ";" | "~>" | "|" | "," | "@"
       | "or" | "xor" | "and"
       | "**" | "<<" | ">>"
       | "+" | "-" | "*" | "/"

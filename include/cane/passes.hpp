@@ -362,6 +362,7 @@ namespace cane {
 		switch (node->kind) {
 			case SymbolKind::Number:
 			case SymbolKind::String:
+			case SymbolKind::Nil:
 
 			case SymbolKind::Beat:
 			case SymbolKind::Rest: {
@@ -448,6 +449,26 @@ namespace cane {
 		BindingEnvironment bindings,
 		size_t depth
 	);
+
+	// Replaces each `param` in `body` with a copy of `arg`. An inner function
+	// with the same parameter name shadows it.
+	[[nodiscard]] inline BoxNode
+	substitute(BoxNode body, std::string_view param, const BoxNode& arg) {
+		if (body == nullptr or
+			(body->kind == SymbolKind::Function and body->lhs->sv == param)) {
+			return body;
+		}
+
+		if (body->kind == SymbolKind::Identifier and body->sv == param) {
+			return deepcopy(arg, &Node::lhs, &Node::rhs);
+		}
+
+		auto node = std::make_shared<Node>(*body);
+		node->lhs = substitute(body->lhs, param, arg);
+		node->rhs = substitute(body->rhs, param, arg);
+
+		return node;
+	}
 
 	// Resolve against existing bindings and return the bindings left at the
 	// top level. Each block in a top-level `;` chain shares that scope, so
@@ -554,7 +575,29 @@ namespace cane {
 				new_node->rhs = arg;
 				new_node->lhs = call;
 
-				return { new_node, bindings };
+				// Inside a function body the argument may name a parameter,
+				// and substituting it could be captured by an inner one. The
+				// call is reduced once the enclosing function is applied.
+				if (std::ranges::contains(
+						bindings, BindingKind::Parameter, &BindingEntry::kind
+					)) {
+					return { new_node, bindings };
+				}
+
+				cane::report_if(
+					call->kind != SymbolKind::Function,
+					ReportKind::Semantic,
+					"`{}` is not a function",
+					call->sv
+				);
+
+				// The body may hold calls of its own, now reducible.
+				return pass_binding_resolution_walk(
+					cfg,
+					substitute(call->rhs, call->lhs->sv, arg),
+					bindings,
+					depth + 1
+				);
 			} break;
 
 			case SymbolKind::Identifier: {
@@ -712,8 +755,6 @@ namespace cane {
  		CANE_TYPE_REMAP(Incr, Scalar, None, Scalar, IncrScalar);
  		CANE_TYPE_REMAP(Decr, Scalar, None, Scalar, DecrScalar);
 
- 		CANE_TYPE_REMAP(Coerce, Scalar, None, Melody, CoerceScalar);
- 		CANE_TYPE_REMAP(Coerce, Melody, None, Melody, CoerceMelody);
 
  		/* Scalar */
  		CANE_TYPE_REMAP(Add, Scalar, Scalar, Scalar, AddScalarScalar);
@@ -728,7 +769,6 @@ namespace cane {
  		CANE_TYPE_REMAP(GCD, Scalar, Scalar, Scalar, GCDScalarScalar);
 
  		CANE_TYPE_REMAP(Euclidean, Scalar, Scalar, Rhythm, EuclideanScalarScalar);
- 		CANE_TYPE_REMAP(Concatenate, Scalar, Scalar, Melody, ConcatenateScalarScalar);
 		CANE_TYPE_REMAP(Random, Scalar, Scalar, Scalar, RandomScalarScalar);
 
  		/* Melody */
@@ -751,32 +791,36 @@ namespace cane {
  		CANE_TYPE_REMAP(Repeat, Melody, Scalar, Melody, RepeatMelodyScalar);
 
  		CANE_TYPE_REMAP(Concatenate, Melody, Melody, Melody, ConcatenateMelodyMelody);
- 		CANE_TYPE_REMAP(Concatenate, Melody, Scalar, Melody, ConcatenateMelodyScalar);
- 		CANE_TYPE_REMAP(Concatenate, Scalar, Melody, Melody, ConcatenateScalarMelody);
+ 		CANE_TYPE_REMAP(Append, Melody, Scalar, Melody, AppendMelodyScalar);
 
- 		CANE_TYPE_REMAP(Head, Melody, None, Melody, HeadMelody);
+ 		CANE_TYPE_REMAP(Head, Melody, None, Scalar, HeadMelody);
  		CANE_TYPE_REMAP(Tail, Melody, None, Melody, TailMelody);
+ 		CANE_TYPE_REMAP(Take, Melody, Scalar, Melody, TakeMelodyScalar);
+ 		CANE_TYPE_REMAP(Drop, Melody, Scalar, Melody, DropMelodyScalar);
 
  		/* Rhythm */
  		CANE_TYPE_REMAP(LeftShift, Rhythm, Scalar, Rhythm, LeftShiftRhythmScalar);
  		CANE_TYPE_REMAP(RightShift, Rhythm, Scalar, Rhythm, RightShiftRhythmScalar);
 
  		CANE_TYPE_REMAP(Repeat, Rhythm, Scalar, Rhythm, RepeatRhythmScalar);
+ 		CANE_TYPE_REMAP(Euclidean, Rhythm, Scalar, Rhythm, EuclideanRhythmScalar);
  		CANE_TYPE_REMAP(Concatenate, Rhythm, Rhythm, Rhythm, ConcatenateRhythmRhythm);
 
  		CANE_TYPE_REMAP(Or, Rhythm, Rhythm, Rhythm, OrRhythmRhythm);
  		CANE_TYPE_REMAP(Xor, Rhythm, Rhythm, Rhythm, XorRhythmRhythm);
  		CANE_TYPE_REMAP(And, Rhythm, Rhythm, Rhythm, AndRhythmRhythm);
 
- 		CANE_TYPE_REMAP(Head, Rhythm, None, Rhythm, HeadRhythm);
  		CANE_TYPE_REMAP(Tail, Rhythm, None, Rhythm, TailRhythm);
+ 		CANE_TYPE_REMAP(Take, Rhythm, Scalar, Rhythm, TakeRhythmScalar);
+ 		CANE_TYPE_REMAP(Drop, Rhythm, Scalar, Rhythm, DropRhythmScalar);
 
  		/* Sequence */
  		CANE_TYPE_REMAP(Concatenate, Sequence, Sequence, Sequence, ConcatenateSequenceSequence);
  		CANE_TYPE_REMAP(Layer, Sequence, Sequence, Sequence, LayerSequenceSequence);
 
- 		CANE_TYPE_REMAP(Head, Sequence, None, Sequence, HeadSequence);
  		CANE_TYPE_REMAP(Tail, Sequence, None, Sequence, TailSequence);
+ 		CANE_TYPE_REMAP(Take, Sequence, Scalar, Sequence, TakeSequenceScalar);
+ 		CANE_TYPE_REMAP(Drop, Sequence, Scalar, Sequence, DropSequenceScalar);
 
  		CANE_TYPE_REMAP(Mul, Sequence, Scalar, Sequence, MulSequenceScalar);
  		CANE_TYPE_REMAP(Div, Sequence, Scalar, Sequence, DivSequenceScalar);
@@ -791,8 +835,9 @@ namespace cane {
  		CANE_TYPE_REMAP(Send, Sequence, String, Pattern, SendSequenceString);
 
  		/* Pattern */
- 		CANE_TYPE_REMAP(Head, Pattern, None, Pattern, HeadPattern);
  		CANE_TYPE_REMAP(Tail, Pattern, None, Pattern, TailPattern);
+ 		CANE_TYPE_REMAP(Take, Pattern, Scalar, Pattern, TakePatternScalar);
+ 		CANE_TYPE_REMAP(Drop, Pattern, Scalar, Pattern, DropPatternScalar);
 
  		CANE_TYPE_REMAP(Layer, Pattern, Pattern, Pattern, LayerPatternPattern);
  		CANE_TYPE_REMAP(Layer, Pattern, Sequence, Pattern, LayerPatternSequence);
@@ -847,6 +892,11 @@ namespace cane {
 			case SymbolKind::Rest: {
 				new_node->type = TypeKind::Rhythm;
 				return { TypeKind::Rhythm, new_node, bindings };
+			} break;
+
+			case SymbolKind::Nil: {
+				new_node->type = TypeKind::Melody;
+				return { TypeKind::Melody, new_node, bindings };
 			} break;
 
 			case SymbolKind::Function: {
@@ -1062,14 +1112,31 @@ namespace cane {
 					new_node->rhs == nullptr ? "nullptr" : new_node->rhs->sv
 				);
 
-				// cane::report_if(
-				// 	not succ,
-				// 	ReportKind::Type,
-				// 	"no mapping for `{}` {} `{}`",
-				// 	lhs,
-				// 	node->kind,
-				// 	rhs
-				// );
+				// An operand with no type yet, such as an uncalled parameter,
+				// is checked once the function is called.
+				auto unknown = [](TypeKind type, const BoxNode& child) {
+					return child != nullptr and type == TypeKind::None;
+				};
+
+				if (not succ and not unknown(lhs, lhs_node) and
+					not unknown(rhs, rhs_node)) {
+					if (rhs_node == nullptr) {
+						cane::report(
+							ReportKind::Type,
+							"`{}` does not take a {}",
+							node->kind,
+							lhs
+						);
+					}
+
+					cane::report(
+						ReportKind::Type,
+						"`{}` does not take {} and {}",
+						node->kind,
+						lhs,
+						rhs
+					);
+				}
 
 				new_node->lhs = lhs_node;
 				new_node->rhs = rhs_node;
@@ -1160,6 +1227,10 @@ namespace cane {
 				return Rhythm { EventKind::Rest };
 			} break;
 
+			case SymbolKind::Nil: {
+				return Melody {};
+			} break;
+
 			case SymbolKind::Call: {
 				cane::report(ReportKind::Semantic, "unresolved call");
 				return std::monostate {};
@@ -1192,6 +1263,10 @@ namespace cane {
 
 		Value lhs = pass_evaluator_walk(cfg, env, node->lhs);
 		Value rhs = pass_evaluator_walk(cfg, env, node->rhs);
+
+		auto count = [](const Value& n) {
+			return static_cast<size_t>(std::max(std::get<Scalar>(n), Scalar { 0 }));
+		};
 
 		switch (node->op) {
 			// Unary Scalar
@@ -1234,11 +1309,6 @@ namespace cane {
 				);
 
 			// Unary vectors
-			case SymbolKind::CoerceScalar:
-				return Melody { std::get<Scalar>(lhs) };
-
-			case SymbolKind::CoerceMelody: return lhs;
-
 			case SymbolKind::InvertRhythm:
 				return bit_not(std::move(std::get<Rhythm>(lhs)));
 
@@ -1249,36 +1319,78 @@ namespace cane {
 				return reverse(std::move(std::get<Melody>(lhs)));
 
 			// Head/Tail
-			case SymbolKind::HeadMelody:
-				return head(std::move(std::get<Melody>(lhs)), 1);
+			case SymbolKind::HeadMelody: {
+				const auto& melody = std::get<Melody>(lhs);
+
+				if (melody.empty()) {
+					cane::report(ReportKind::Eval, "head of an empty melody");
+				}
+
+				return melody.front();
+			} break;
 
 			case SymbolKind::TailMelody:
 				return tail(std::move(std::get<Melody>(lhs)), 1);
 
-			case SymbolKind::HeadRhythm:
-				return head(std::move(std::get<Rhythm>(lhs)), 1);
-
 			case SymbolKind::TailRhythm:
 				return tail(std::move(std::get<Rhythm>(lhs)), 1);
 
-			case SymbolKind::HeadSequence:
-				return head(std::move(std::get<Sequence>(lhs)), 1);
-
 			case SymbolKind::TailSequence:
-				return tail(std::move(std::get<Sequence>(lhs)), 1);
-
-			case SymbolKind::HeadPattern:
-				return head(std::move(std::get<Sequence>(lhs)), 1);
-
 			case SymbolKind::TailPattern:
 				return tail(std::move(std::get<Sequence>(lhs)), 1);
 
+			// Take/Drop. A negative count is 0, as in Haskell.
+			case SymbolKind::TakeMelodyScalar:
+				return head(std::move(std::get<Melody>(lhs)), count(rhs));
+
+			case SymbolKind::DropMelodyScalar:
+				return tail(std::move(std::get<Melody>(lhs)), count(rhs));
+
+			case SymbolKind::TakeRhythmScalar:
+				return head(std::move(std::get<Rhythm>(lhs)), count(rhs));
+
+			case SymbolKind::DropRhythmScalar:
+				return tail(std::move(std::get<Rhythm>(lhs)), count(rhs));
+
+			case SymbolKind::TakeSequenceScalar:
+			case SymbolKind::TakePatternScalar:
+				return head(std::move(std::get<Sequence>(lhs)), count(rhs));
+
+			case SymbolKind::DropSequenceScalar:
+			case SymbolKind::DropPatternScalar:
+				return tail(std::move(std::get<Sequence>(lhs)), count(rhs));
+
 			// Misc.
-			case SymbolKind::EuclideanScalarScalar:
-				return euclidean<Rhythm>(
-					std::move(std::get<Scalar>(lhs)),
-					std::move(std::get<Scalar>(rhs))
+			case SymbolKind::EuclideanScalarScalar: {
+				auto hits = std::get<Scalar>(lhs);
+				auto steps = std::get<Scalar>(rhs);
+
+				// Also catches a note written where hits belong: `bd:3`.
+				if (hits < 0 or steps < 0 or hits > steps) {
+					cane::report(
+						ReportKind::Eval,
+						"`{}:{}` needs 0 <= hits <= steps",
+						hits,
+						steps
+					);
+				}
+
+				return euclidean<Rhythm>(hits, steps);
+			} break;
+
+			// `3:8:1` shifts left by one step, as Tidal's `bd(3,8,1)` does.
+			case SymbolKind::EuclideanRhythmScalar: {
+				auto rhythm = std::get<Rhythm>(std::move(lhs));
+				auto n = static_cast<Scalar>(rhythm.size());
+
+				if (n == 0) {
+					return rhythm;
+				}
+
+				return rotate_left(
+					std::move(rhythm), ((std::get<Scalar>(rhs) % n) + n) % n
 				);
+			} break;
 
 			case SymbolKind::RandomScalarScalar:
 				return choice(
@@ -1373,27 +1485,13 @@ namespace cane {
 					std::move(std::get<Scalar>(rhs))
 				);
 
-			// Concatenate
-			case SymbolKind::ConcatenateScalarScalar: {
-				Melody melody;
-
-				melody.emplace_back(std::get<Scalar>(lhs));
-				melody.emplace_back(std::get<Scalar>(rhs));
-
-				return melody;
-			} break;
-
-			case SymbolKind::ConcatenateMelodyScalar: {
+			case SymbolKind::AppendMelodyScalar: {
 				auto melody = std::get<Melody>(lhs);
 				melody.emplace_back(std::get<Scalar>(rhs));
 				return melody;
 			} break;
 
-			case SymbolKind::ConcatenateScalarMelody: {
-				auto melody = std::get<Melody>(rhs);
-				melody.emplace_back(std::get<Scalar>(lhs));
-				return melody;
-			} break;
+			// Concatenate
 
 			case SymbolKind::ConcatenateMelodyMelody:
 				return concatenate(

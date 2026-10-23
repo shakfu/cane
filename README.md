@@ -5,15 +5,15 @@ Cane is a programming language for making music. You write rhythms and
 melodies as short expressions and send them to MIDI channels.
 
 ![C++](https://badgen.net/static/C++/26/orange)
-[![license](https://badgen.net/github/license/tarpit-collective/cane)](./LICENSE)
+[![license](https://badgen.net/github/license/shakfu/cane)](./LICENSE)
 [![discord](https://badgen.net/discord/members/UVYAtpYYD2)](https://discord.gg/UVYAtpYYD2)
 
 ```
 #! Kick on a 3-in-8 euclidean rhythm, snare on 3 and 7, closed hats on every step.
 kick  = bd@3:8;
-snare = sd@..!.**2;
+snare = sd@2:8:2;
 hats  = hh@8:8;
-kick $ snare $ hats ~> "drums"
+kick | snare | hats ~> "drums"
 ```
 
 ### Contents
@@ -31,8 +31,7 @@ Cane is in development.
 
 - Works: lexer, parser, binding resolution, type checking, evaluation, MIDI
   output on an internal clock, the REPL, and file watching.
-- Not yet: following an external MIDI clock, and calling functions (they
-  parse and type-check, but evaluation fails).
+- Not yet: following an external MIDI clock, and recursive functions.
 - Each pass also prints debug logs.
 - `tests/readme.cpp` evaluates every example and table row in this README.
 
@@ -48,7 +47,7 @@ The dependencies are vendored in `thirdparty/`:
 
 ### Build
 ```sh
-$ git clone https://github.com/tarpit-collective/cane.git && cd cane/
+$ git clone https://github.com/shakfu/cane.git && cd cane/
 $ pre-commit install  # Checks/linting
 $ make test           # Build and run tests (debug preset)
 ```
@@ -146,6 +145,16 @@ bd@3:8 ~> "drums"
 `:` binds tighter than `@`, so `bd@3:8` is `bd@(3:8)`: the rhythm `3:8`, then
 `bd` mapped onto it.
 
+A third part shifts the rhythm left by that many steps, as in Tidal's
+`bd(3,8,1)`. Hits can't exceed steps, so a note in place of hits, e.g.
+`bd:3:8`, is an error.
+
+| Expression | Steps |
+|-|-|
+| `3:8` | `x..x..x.` |
+| `3:8:1` | `..x..x.x` |
+| `2:8:2` | `..x...x.` |
+
 ```
 step  1 2 3 4 5 6 7 8
       x . . x . . x .
@@ -169,11 +178,11 @@ Operators change a rhythm before notes are mapped onto it.
 To play a row, write it as `bd@(...) ~> "drums"`.
 
 ### 4. Melodies
-`,` joins numbers into a melody. Each step takes the next note, and the
-melody repeats until every step has one.
+`[a, b, c]` is a melody, as in Haskell: `[60]` has one note, `[]` none. Each
+step takes the next note, and the melody repeats until every step has one.
 
 ```
-(C4, D4, E4)@!!!! + 12 ~> "303"
+[C4, D4, E4]@!!!! + 12 ~> "303"
 ```
 
 ```
@@ -187,7 +196,7 @@ Names are case insensitive and take `#` or `b`: `c#4` is 61, `Bb3` is 58.
 A rest also uses up a note:
 
 ```
-(C2, Eb2, G2)@!.!! !.!. + 12 ~> "303"
+[C2, Eb2, G2]@!.!! !.!. + 12 ~> "303"
 ```
 
 ```
@@ -199,15 +208,18 @@ Melody operators:
 
 | Expression | Result |
 |-|-|
-| `(60, 62, 64) + 12` | `72, 74, 76` |
-| `'(60, 62, 64)` | `64, 62, 60` |
-| `(60, 62, 64) << 1` | `62, 64, 60` |
-| `(60, 62) ** 2` | `60, 62, 60, 62` |
-| `head (60, 62, 64)` | `60` |
-| `tail (60, 62, 64)` | `62, 64` |
+| `[60, 62, 64] + 12` | `[72, 74, 76]` |
+| `'[60, 62, 64]` | `[64, 62, 60]` |
+| `[60, 62, 64] << 1` | `[62, 64, 60]` |
+| `[60, 62] ** 2` | `[60, 62, 60, 62]` |
+| `head [60, 62, 64]` | `60` |
+| `tail [60, 62, 64]` | `[62, 64]` |
+| `take 2 [60, 62, 64]` | `[60, 62]` |
+| `drop 2 [60, 62, 64]` | `[64]` |
+| `[60, 62], [64]` | `[60, 62, 64]` |
 
-Use parentheses around a melody. `,` binds more loosely than the arithmetic
-operators, so `60, 62 + 12` means `60, 74`.
+Each element is an expression: `[60, 62 + 12]` is `[60, 74]`. `,` between
+two melodies concatenates them.
 
 ### 5. Transforming sequences
 `@` binds tighter than every operator except `:`, so a transform after it
@@ -219,8 +231,8 @@ acts on the sequence. Read left to right: map, then transform.
 | `hh@3:8 >> 2` | `42 . 42 . . 42 . .` | Rotate right by 2 steps |
 | `hh@3:8 << 1` | `. . 42 . . 42 . 42` | Rotate left by 1 step |
 | `'(bd@!..)` | `. . 36` | Reverse |
-| `(C4, E4)@!! + 12` | `72 76` | Transpose up |
-| `(C4, E4)@!! - 12` | `48 52` | Transpose down |
+| `[C4, E4]@!! + 12` | `72 76` | Transpose up |
+| `[C4, E4]@!! - 12` | `48 52` | Transpose down |
 
 `*` and `/` scale a sequence's time: `bd@!! * 2` lasts twice as long.
 
@@ -228,8 +240,8 @@ Repeating after `@` restarts the melody. Repeating the rhythm first
 continues it:
 
 ```text
-(C4, E4, G4)@!!!! ** 2      60 64 67 60  60 64 67 60
-(C4, E4, G4)@(!!!! ** 2)    60 64 67 60  64 67 60 64
+[C4, E4, G4]@!!!! ** 2      60 64 67 60  60 64 67 60
+[C4, E4, G4]@(!!!! ** 2)    60 64 67 60  64 67 60 64
 ```
 
 ### 6. Bindings
@@ -238,25 +250,61 @@ the program's result.
 
 ```
 kick = bd@3:8;
-snare = sd@..!. ** 2;
-kick $ snare ~> "drums"
+snare = sd@2:8:2;
+kick | snare ~> "drums"
 ```
 
-Spaces are optional: `kick=bd@3:8;snare=sd@..!.**2;kick$snare~>"drums"`.
+Spaces are optional: `kick=bd@3:8;snare=sd@2:8:2;kick|snare~>"drums"`.
 
 `=` is also how you build up a session in the REPL:
 
 ```
 cane> kick = bd@3:8
-cane> snare = sd@..!. ** 2
-cane> kick $ snare ~> "drums"
+cane> snare = sd@2:8:2
+cane> kick | snare ~> "drums"
 ```
 
 A later `=` with the same name replaces the earlier one for the lines that
 follow.
 
-### 7. Combining sequences
-- `a $ b` layers: `a` and `b` start at the same time.
+### 7. Functions
+`name params = body` defines a function. A call is the name followed by its
+arguments, separated by spaces.
+
+```
+hit n = bd@n:8;
+hit 3 | hit 5 >> 1 ~> "drums"
+```
+
+| Program | Result |
+|-|-|
+| `f x = x + 1; f 3` | `4` |
+| `g x y = (x + y) / 2; g 4 8` | `6` |
+| `f x = x + 1; f 3 + 1` | `5` |
+| `g x y = (x + y) / 2; h = g 10; h 2` | `6` |
+| `twice f x = f (f x); f x = x * 2; twice f 3` | `12` |
+| `twice f x = f (f x); twice (* 2) 3` | `12` |
+| `(10 -) 3` | `7` |
+| `(+) 1 2` | `3` |
+
+- A call binds tighter than any operator: `f 3 + 1` is `(f 3) + 1`, and
+  `hit 3:8` is `(hit 3):8`. Write `hit (3:8)` to pass the rhythm.
+- A call with fewer arguments returns a function, as `h` above.
+- A function can take a function, as `twice` above.
+- Builtin functions, as in Haskell:
+  - `abs x`: absolute value. `abs (-3)` is 3; `abs -3` is `abs - 3`, an
+    error.
+  - `head m`: the first note of a melody, as a number.
+  - `tail x`, `take n x`, `drop n x`: all but the first, the first `n`, all
+    but the first `n`. These work on melodies, rhythms, sequences and
+    patterns.
+- An operator in parentheses with one side missing is a function of that
+  side: `(* 2)` doubles, `(10 -)` subtracts from 10, `(+)` adds two
+  arguments. `(- a)` negates, as in Haskell; use `(+ -a)` or `\x -> num x - a`.
+- A function cannot call itself.
+
+### 8. Combining sequences
+- `a | b` layers: `a` and `b` start at the same time.
 - `a, b` concatenates: `b` starts when `a` ends.
 
 ```
@@ -268,7 +316,7 @@ time ms  0    500  1000
          36   38   38
 ```
 
-### 8. Comments
+### 9. Comments
 `#!` starts a comment that runs to the end of the line.
 
 ```
@@ -285,22 +333,22 @@ re-evaluate.
 kick  = bd@!.....!. !.!.....;
 snare = sd@....!... ....!..!;
 hats  = hh@!!!!!!!! ** 2;
-kick $ snare $ hats ~> "drums"
+kick | snare | hats ~> "drums"
 ```
 
 **Euclidean layers**
 ```
 #! Three rhythms of different density over 16 steps.
 low  = bd@5:16;
-mid  = cp@3:16 >> 2;
+mid  = cp@3:16:2;
 high = hh@7:16;
-low $ mid $ high ~> "drums"
+low | mid | high ~> "drums"
 ```
 
 **Bassline**
 ```
 #! Root, minor third, fifth, octave; the rests consume notes too.
-notes = (C2, Eb2, G2, C3);
+notes = [C2, Eb2, G2, C3];
 notes@!.!! .!!. !.!. !!.! ~> "303"
 ```
 
@@ -311,6 +359,7 @@ notes@!.!! .!!. !.!. !!.! ~> "303"
 |-|-|
 | `!`, `.` | Beat, rest (one step each) |
 | `60` | Number (scalar) |
+| `[60, 62]`, `[60]`, `[]` | Melody. A trailing `,` is allowed |
 | `C4`, `c#4`, `Bb3` | Note name, scientific pitch: `C4` is 60. Case insensitive. `C0` to `G9` |
 | `"drums"` | String |
 | `#! ...` | Comment to end of line |
@@ -325,9 +374,10 @@ left.
 | `a ; b` | Sequence expressions; result is `b` |
 | `a ~> "name"` | Send to a named channel |
 | `name = a` | Bind `a` to `name`; result is `a` |
-| `a $ b` | Layer |
-| `a , b` | Concatenate |
-| `f a` | Call (not yet evaluated) |
+| `f x y = a` | Define a function of `x` and `y` |
+| `(op a)`, `(a op)`, `(op)` | Section: `op` as a function of the missing side |
+| `a \| b` | Layer |
+| `a , b` | Concatenate melodies, rhythms or sequences |
 | `a or b`, `a xor b`, `a and b` | Step-wise logic on rhythms |
 | `a ** n` | Repeat |
 | `a << n`, `a >> n` | Rotate left, right (sequences: by steps) |
@@ -335,16 +385,15 @@ left.
 | `a + b`, `a - b` | Add, subtract (sequences: transpose) |
 | `a * b`, `a / b` | Multiply, divide (sequences: scale time) |
 | `a @ b` | Map a note or melody onto a rhythm: `bd@3:8` |
-| `a : b` | Euclidean rhythm: `3:8` |
+| `a : b`, `a : b : n` | Euclidean rhythm: `3:8`; shifted left by `n`: `3:8:1` |
 | `a lcm b`, `a gcd b` | Least common multiple, greatest common divisor |
 | `a ? b` | Choose one of `a` and `b` |
-| `head a`, `tail a` | First element, all but the first |
-| `+a`, `-a` | Absolute value, negate |
+| `-a` | Negate |
 | `a++`, `a--` | Increment, decrement |
-| `&a` | Coerce a number to a melody |
+| `f a b` | Call: `(f a) b` |
 
-The value bound by `x = a`, and the body of a function `\x -> type a`, run to
-the next `;` or `~>`.
+The right side of `=`, and the body of `\x -> type a`, run to the next `;` or
+`~>`.
 
 Type rules for each operator are in [docs/types.md](docs/types.md). The grammar
 is in [docs/syntax.ebnf](docs/syntax.ebnf).
@@ -377,11 +426,12 @@ rebind any of them.
 | Scalar | `num` | `60` |
 | String | `str` | `"drums"` |
 | Rhythm | `rhy` | `!.!.` |
-| Melody | `mel` | `60, 62` |
+| Melody | `mel` | `[60, 62]` |
 | Sequence | `seq` | `60@!.!.` |
 | Pattern | `pat` | `60@!.!. ~> "drums"` |
 
-Annotations are used in function definitions, e.g. `\n -> num n + 12`.
+Annotations are required in anonymous functions, e.g. `\n -> num n + 12`.
+They are not yet checked.
 
 ## Design
 `cane` compiles a program in passes:

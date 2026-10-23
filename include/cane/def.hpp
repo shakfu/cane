@@ -206,6 +206,8 @@ namespace cane {
 	X(Rest, ".", Literal, None, None) \
 \
 	X(Identifier, "identifier", Literal, None, None) \
+	/* Not lexed: the empty melody that `[a, b]` appends to. */ \
+	X(Nil, "[]", Literal, None, None) \
 \
 	X(LeftParen, "(", Primary, None, None) \
 	X(RightParen, ")", None, None, None) \
@@ -213,7 +215,7 @@ namespace cane {
 	X(LeftBrace, "{", None, None, None) \
 	X(RightBrace, "}", None, None, None) \
 \
-	X(LeftBracket, "[", None, None, None) \
+	X(LeftBracket, "[", Primary, None, None) \
 	X(RightBracket, "]", None, None, None) \
 \
 	/* Operators */ \
@@ -223,11 +225,9 @@ namespace cane {
 	X(Assign, "=", Infix, Incr, Right) \
 	X(Function, "function", Primary, Incr, Right) \
 \
-	X(Layer, "$", Infix, Last, Left) \
+	X(Layer, "|", Infix, Last, Left) \
 \
 	X(Concatenate, ",", Infix, Incr, Left) \
-\
-	X(Call, "call", Infix, Incr, Left) \
 \
 	X(Or, "or", Infix, Incr, Left) \
 	X(Xor, "xor", Infix, Last, Left) \
@@ -256,16 +256,21 @@ namespace cane {
 \
 	X(Random, "?", Infix, Incr, Left) \
 \
+	/* Not lexed: only the bodies of builtin functions. */ \
 	X(Head, "head", Prefix, Incr, Right) \
 	X(Tail, "tail", Prefix, Last, Right) \
+	X(Take, "take", Infix, Last, Left) \
+	X(Drop, "drop", Infix, Last, Left) \
+	X(Append, "[ ]", Infix, Last, Left) \
 \
-	X(Abs, "+", Prefix, Incr, Right) \
+	X(Abs, "abs", Prefix, Incr, Right) \
 	X(Neg, "-", Prefix, Last, Right) \
 \
 	X(Incr, "++", Postfix, Incr, Left) \
 	X(Decr, "--", Postfix, Last, Left) \
 \
-	X(Coerce, "&", Prefix, Incr, Right) \
+	/* Tightest, as in Haskell: `f x + 1` is `(f x) + 1`. */ \
+	X(Call, "call", Infix, Incr, Left) \
 \
 	/* === Type Specific Symbols (Assigned during typechecking) === */ \
 \
@@ -294,13 +299,11 @@ namespace cane {
 	X(GCDScalarScalar, "scalar gcd", Operator, None, None) \
 \
 	X(EuclideanScalarScalar, "scalar euclidean", Operator, None, None) \
-	X(ConcatenateScalarScalar, "scalar concatenate", Operator, None, None) \
 \
 	X(RandomScalarScalar, "scalar random", Operator, None, None) \
 \
 	/* MELODY */ \
-	X(CoerceScalar, "coerce scalar", Operator, None, None) \
-	X(CoerceMelody, "coerce melody", Operator, None, None) \
+	X(AppendMelodyScalar, "melody append", Operator, None, None) \
 \
 	X(MapMelodyRhythm, "melody map", Operator, None, None) \
 	X(MapScalarRhythm, "melody map", Operator, None, None) \
@@ -321,25 +324,27 @@ namespace cane {
 	X(RepeatMelodyScalar, "melody repeat", Operator, None, None) \
 \
 	X(ConcatenateMelodyMelody, "melody concatenate", Operator, None, None) \
-	X(ConcatenateMelodyScalar, "melody concatenate", Operator, None, None) \
-	X(ConcatenateScalarMelody, "melody concatenate", Operator, None, None) \
 \
 	X(HeadMelody, "melody head", Operator, None, None) \
 	X(TailMelody, "melody tail", Operator, None, None) \
+	X(TakeMelodyScalar, "melody take", Operator, None, None) \
+	X(DropMelodyScalar, "melody drop", Operator, None, None) \
 \
 	/* RHYTHM */ \
 	X(LeftShiftRhythmScalar, "rhythm lshift", Operator, None, None) \
 	X(RightShiftRhythmScalar, "rhythm rshift", Operator, None, None) \
 \
 	X(RepeatRhythmScalar, "rhythm repeat", Operator, None, None) \
+	X(EuclideanRhythmScalar, "rhythm euclidean offset", Operator, None, None) \
 	X(ConcatenateRhythmRhythm, "rhythm concatenate", Operator, None, None) \
 \
 	X(OrRhythmRhythm, "rhythm or", Operator, None, None) \
 	X(XorRhythmRhythm, "rhythm xor", Operator, None, None) \
 	X(AndRhythmRhythm, "rhythm and", Operator, None, None) \
 \
-	X(HeadRhythm, "rhythm head", Operator, None, None) \
 	X(TailRhythm, "rhythm tail", Operator, None, None) \
+	X(TakeRhythmScalar, "rhythm take", Operator, None, None) \
+	X(DropRhythmScalar, "rhythm drop", Operator, None, None) \
 \
 	/* SEQUENCE */ \
 	X(ConcatenateSequenceSequence, \
@@ -358,14 +363,16 @@ namespace cane {
 	X(ReverseSequence, "sequence reverse", Operator, None, None) \
 	X(DivSequenceScalar, "sequence div", Operator, None, None) \
 \
-	X(HeadSequence, "sequence head", Operator, None, None) \
 	X(TailSequence, "sequence tail", Operator, None, None) \
+	X(TakeSequenceScalar, "sequence take", Operator, None, None) \
+	X(DropSequenceScalar, "sequence drop", Operator, None, None) \
 \
 	X(SendSequenceString, "sequence send", Operator, None, None) \
 \
 	/* PATTERN */ \
-	X(HeadPattern, "pattern head", Operator, None, None) \
 	X(TailPattern, "pattern tail", Operator, None, None) \
+	X(TakePatternScalar, "pattern take", Operator, None, None) \
+	X(DropPatternScalar, "pattern drop", Operator, None, None) \
 \
 	X(LayerPatternPattern, "pattern layer", Operator, None, None) \
 	X(LayerPatternSequence, "pattern layer", Operator, None, None) \

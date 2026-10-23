@@ -8,3 +8,5 @@ w
 #! comment only
 t = 1;
 t
+f n = n + 1
+f 2
