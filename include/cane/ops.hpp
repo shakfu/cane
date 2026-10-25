@@ -3,8 +3,12 @@
 
 #include <cstddef>
 #include <functional>
+#include <numeric>
 #include <algorithm>
 #include <random>
+#include <string>
+#include <string_view>
+#include <vector>
 #include <ranges>
 
 #include <cane/log.hpp>
@@ -145,23 +149,6 @@ namespace cane {
 		return lhs;
 	}
 
-	template <typename T>
-	inline T join(T lhs, T rhs) {
-		// We need to find the maximum key in the left sequence and then
-		// transpose the key of every event in the right sequence.
-
-		auto timestamp =
-			std::ranges::max(lhs | std::views::transform(&Event::timestamp));
-
-		// FIXME: Can we use a projection for accessing &Event::key?
-		std::ranges::transform(rhs, std::back_inserter(lhs), [&](auto x) {
-			x.timestamp += timestamp;
-			return x;
-		});
-
-		return lhs;
-	}
-
 	// Logic
 	template <typename T>
 	inline T bit_not(T v) {
@@ -252,14 +239,11 @@ namespace cane {
 		return dist(rng);
 	}
 
+	// Raw engine bits, not a distribution: `std::mt19937_64` output is fixed
+	// by the standard, distributions are not, so picks match across platforms.
 	template <typename T>
-	inline int64_t choice(T lhs, T rhs) {
-		std::random_device rd;
-		std::mt19937 rng { rd() };
-
-		std::bernoulli_distribution dist(0.5f);
-
-		return dist(rng) ? lhs : rhs;
+	inline T choice(T lhs, T rhs, std::mt19937_64& rng) {
+		return (rng() & 1) ? lhs : rhs;
 	}
 
 	// Scaling only durations left start times unchanged, so events overlapped
@@ -304,6 +288,60 @@ namespace cane {
 		return seq;
 	}
 
+	// `rhs` starts where `lhs` ends. Offsetting by the last start time instead
+	// started `rhs` on `lhs`'s final step.
+	template <typename T>
+	inline T join(T lhs, T rhs) {
+		auto offset = length(lhs);
+
+		for (auto ev: rhs) {
+			ev.timestamp += offset;
+			lhs.push_back(ev);
+		}
+
+		return lhs;
+	}
+
+	// Repeats each layer to the LCM of their lengths, so a layer whose length
+	// does not divide the other's keeps its own period (polymeter).
+	template <typename T>
+	inline T layer(T lhs, T rhs, TimeUnit step, Scalar max_steps) {
+		auto a = length(lhs).count();
+		auto b = length(rhs).count();
+
+		// `lcm(x, 0)` is 0, and repeating by `0 / x` would drop the layer.
+		if (a == 0 or b == 0) {
+			return sort_by_time(concatenate(std::move(lhs), std::move(rhs)));
+		}
+
+		// Checked before multiplying, so the LCM cannot overflow.
+		auto g = std::gcd(a, b);
+		auto limit = max_steps * step.count();
+
+		if (a / g > limit / b) {
+			auto steps = [&](auto us) {
+				return static_cast<double>(us) / static_cast<double>(step.count());
+			};
+
+			cane::report(
+				ReportKind::Eval,
+				"layers of {:g} and {:g} steps loop every {:g} steps, over the "
+				"limit of {}",
+				steps(a),
+				steps(b),
+				steps(a / g) * static_cast<double>(b),
+				max_steps
+			);
+		}
+
+		auto lcm = a / g * b;
+
+		return sort_by_time(concatenate(
+			repeat_sequence(std::move(lhs), lcm / a),
+			repeat_sequence(std::move(rhs), lcm / b)
+		));
+	}
+
 	// Rests keep their note: they are never sent.
 	template <typename T>
 	inline T transpose(T seq, Scalar n) {
@@ -327,6 +365,119 @@ namespace cane {
 		}
 
 		return seq;
+	}
+
+	// Assigns `values` to events in order, cycling, as `@` assigns notes.
+	// Rests use up a value too.
+	template <typename T, typename F>
+	inline T assign_each(
+		T seq, const Melody& values, std::string_view op, Scalar lo, Scalar hi, F set
+	) {
+		if (values.empty()) {
+			cane::report(ReportKind::Eval, "`{}` needs at least one value", op);
+		}
+
+		for (auto [i, ev]: std::views::zip(std::views::iota(size_t { 0 }), seq)) {
+			auto v = values[i % values.size()];
+
+			if (v < lo or v > hi) {
+				cane::report(
+					ReportKind::Eval, "`{} {}` is outside {}-{}", op, v, lo, hi
+				);
+			}
+
+			set(ev, v);
+		}
+
+		return seq;
+	}
+
+	// Names follow Tidal's `scale` and `chord`, so patterns copy across.
+	struct NamedSteps {
+		std::string_view name;
+		std::vector<Scalar> steps;
+	};
+
+	inline const std::vector<NamedSteps>& scales() {
+		static const std::vector<NamedSteps> table {
+			{ "major", { 0, 2, 4, 5, 7, 9, 11 } },
+			{ "minor", { 0, 2, 3, 5, 7, 8, 10 } },
+			{ "dorian", { 0, 2, 3, 5, 7, 9, 10 } },
+			{ "phrygian", { 0, 1, 3, 5, 7, 8, 10 } },
+			{ "lydian", { 0, 2, 4, 6, 7, 9, 11 } },
+			{ "mixolydian", { 0, 2, 4, 5, 7, 9, 10 } },
+			{ "locrian", { 0, 1, 3, 5, 6, 8, 10 } },
+			{ "harmonicMinor", { 0, 2, 3, 5, 7, 8, 11 } },
+			{ "melodicMinor", { 0, 2, 3, 5, 7, 9, 11 } },
+			{ "majPent", { 0, 2, 4, 7, 9 } },
+			{ "minPent", { 0, 3, 5, 7, 10 } },
+			{ "whole", { 0, 2, 4, 6, 8, 10 } },
+			{ "chromatic", { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 } },
+		};
+
+		return table;
+	}
+
+	inline const std::vector<NamedSteps>& chords() {
+		static const std::vector<NamedSteps> table {
+			{ "maj", { 0, 4, 7 } },
+			{ "min", { 0, 3, 7 } },
+			{ "dim", { 0, 3, 6 } },
+			{ "aug", { 0, 4, 8 } },
+			{ "sus2", { 0, 2, 7 } },
+			{ "sus4", { 0, 5, 7 } },
+			{ "maj7", { 0, 4, 7, 11 } },
+			{ "dom7", { 0, 4, 7, 10 } },
+			{ "min7", { 0, 3, 7, 10 } },
+		};
+
+		return table;
+	}
+
+	// The error lists every name, so a typo shows the alternatives.
+	inline const std::vector<Scalar>& lookup_steps(
+		const std::vector<NamedSteps>& table, std::string_view kind, std::string_view name
+	) {
+		auto it = std::ranges::find(table, name, &NamedSteps::name);
+
+		if (it == table.end()) {
+			std::string names;
+
+			for (const auto& entry: table) {
+				names += (names.empty() ? "" : ", ") + std::string { entry.name };
+			}
+
+			cane::report(
+				ReportKind::Eval, "unknown {} `{}`; one of: {}", kind, name, names
+			);
+		}
+
+		return it->steps;
+	}
+
+	// Degree `d` of `steps`, in semitones. Degrees past either end wrap by an
+	// octave: in a 7-note scale, 7 is 12 and -1 is -1.
+	inline Scalar scale_degree(const std::vector<Scalar>& steps, Scalar d) {
+		auto len = static_cast<Scalar>(steps.size());
+		auto octave = (d >= 0 ? d : d - len + 1) / len;  // Floor division.
+
+		return 12 * octave + steps[static_cast<size_t>(d - octave * len)];
+	}
+
+	// One copy of `seq` per interval, all starting together: a block chord.
+	template <typename T>
+	inline T stack(const T& seq, const Melody& intervals) {
+		if (intervals.empty()) {
+			cane::report(ReportKind::Eval, "`stack` needs at least one interval");
+		}
+
+		T out;
+
+		for (auto i: intervals) {
+			out = concatenate(std::move(out), transpose(seq, i));
+		}
+
+		return sort_by_time(std::move(out));
 	}
 
 	template <typename T>
@@ -363,6 +514,30 @@ namespace cane {
 		}
 
 		return sort_by_time(std::move(seq));
+	}
+
+	// Rescales `seq` to last exactly `target`. Start and end times are scaled
+	// separately from the originals, so rounding never accumulates and the
+	// last end is exact: layering by LCM needs whole-step lengths.
+	template <typename T>
+	inline T fit(T seq, TimeUnit target) {
+		auto len = length(seq).count();
+
+		if (len == 0) {
+			return seq;
+		}
+
+		auto scale = [&](TimeUnit t) {
+			return TimeUnit { t.count() * target.count() / len };
+		};
+
+		for (auto& ev: seq) {
+			auto end = scale(ev.timestamp + ev.duration);
+			ev.timestamp = scale(ev.timestamp);
+			ev.duration = end - ev.timestamp;
+		}
+
+		return seq;
 	}
 
 	template <typename T>

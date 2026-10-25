@@ -20,6 +20,7 @@ namespace cane {
 	struct Configuration {
 		size_t bpm;
 		std::unordered_map<std::string_view, uint8_t> channel_bindings;
+		uint64_t seed = 0;  // With the cycle number, seeds `?`.
 	};
 
 	///////////
@@ -30,6 +31,10 @@ namespace cane {
 
 	constexpr auto MINUTE =
 		std::chrono::duration_cast<TimeUnit>(std::chrono::minutes { 1 });
+
+	// Longest loop `|` builds, in steps: 128 s at 120 BPM. The player switches
+	// patterns at a loop's end, so longer loops delay each change.
+	constexpr int64_t MAX_LOOP_STEPS = 256;
 
 	struct Event {
 		EventKind kind;
@@ -42,6 +47,10 @@ namespace cane {
 		uint8_t channel;
 		uint8_t note;
 		uint8_t velocity;
+
+		// Percent of `duration` that sounds. Kept apart from `duration`, which
+		// is the step's slot and sets the loop length.
+		uint32_t gate = 100;
 	};
 
 	using Scalar = int64_t;
@@ -75,7 +84,8 @@ namespace cane {
 		   << ", ";
 		os << "channel: " << static_cast<int>(ev.channel) << ", ";
 		os << "note: " << static_cast<int>(ev.note) << ", ";
-		os << "velocity: " << static_cast<int>(ev.velocity);
+		os << "velocity: " << static_cast<int>(ev.velocity) << ", ";
+		os << "gate: " << ev.gate;
 		os << " }";
 
 		return os;

@@ -1,6 +1,9 @@
 # Looping, layers and polyrhythm
 
-Status: proposal. Goal: support polyrhythm.
+Status: implemented. `fit` binds at the level of `**`, not just above `|`
+as proposed below, so `a, b fit 1` fits only `b` and a triplet can sit
+inside a concatenation. It takes a step count; `a fit b` is not supported.
+Goal: support polyrhythm.
 
 ## Current behaviour
 - A program evaluates to a finite sequence: a list of timed events. Its

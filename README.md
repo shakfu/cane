@@ -6,7 +6,6 @@ melodies as short expressions and send them to MIDI channels.
 
 ![C++](https://badgen.net/static/C++/26/orange)
 [![license](https://badgen.net/github/license/shakfu/cane)](./LICENSE)
-[![discord](https://badgen.net/discord/members/UVYAtpYYD2)](https://discord.gg/UVYAtpYYD2)
 
 ```
 #! Kick on a 3-in-8 euclidean rhythm, snare on 3 and 7, closed hats on every step.
@@ -85,8 +84,11 @@ $ ./build/debug/cane --port "IAC"
 Some MIDI APIs, e.g. WinMM on Windows, have no virtual ports. There, `cane`
 warns and prints events only unless `--port` is given.
 
-The current pattern loops at 120 BPM. A new pattern from the REPL or a saved
-file starts at the end of the current loop. A value that is not a pattern,
+The current pattern loops at 120 BPM. Each loop is a cycle: the program is
+evaluated again with the next cycle number, so `cycle` and `?` can change
+it from loop to loop. A new pattern from the REPL or a saved file starts at
+the end of the current loop. If a cycle fails to evaluate, the error is
+printed and the previous cycle repeats. A value that is not a pattern,
 e.g. `kick = bd@3:8`, does not change what plays. On exit, `cane`
 releases every sounding note.
 
@@ -94,12 +96,12 @@ Events with no channel, e.g. a sequence layered into a pattern without
 `~>`, and notes above 127 are not sent.
 
 #### Output
-Each program's value is printed: one line per event for a pattern, and the
-value itself for anything else.
+Each program's value at cycle 0 is printed: one line per event for a
+pattern, and the value itself for anything else.
 
 ```text
-     0 ms  ch 10  note  36  beat
-   500 ms  ch 10  note  36  rest
+     0 ms  ch 10  note  36  vel 127  gate 100%  beat
+   500 ms  ch 10  note  36  vel 127  gate 100%  rest
 ```
 
 In the REPL, each line is compiled when you press enter. Errors are reported
@@ -298,6 +300,13 @@ hit 3 | hit 5 >> 1 ~> "drums"
   - `tail x`, `take n x`, `drop n x`: all but the first, the first `n`, all
     but the first `n`. These work on melodies, rhythms, sequences and
     patterns.
+  - `cycle`: the number of loops played so far, from 0. It keeps counting
+    when a new pattern replaces the old one. `bd@! + cycle` rises one
+    semitone per loop.
+  - `every k f x`, `sometimes f x`: see [Changing each
+    cycle](#9-changing-each-cycle).
+  - `scale name m`, `chord name`, `stack m s`: see [Scales and
+    chords](#12-scales-and-chords).
 - An operator in parentheses with one side missing is a function of that
   side: `(* 2)` doubles, `(10 -)` subtracts from 10, `(+)` adds two
   arguments. `(- a)` negates, as in Haskell; use `(+ -a)` or `\x -> num x - a`.
@@ -312,11 +321,138 @@ bd@!., sd@!! ~> "drums"
 ```
 
 ```
-time ms  0    500  1000
-         36   38   38
+time ms  0    500  1000 1500
+         36   .    38   38
 ```
 
-### 9. Comments
+Layers of different lengths repeat until they realign, at the least common
+multiple of their lengths. A 3-step and a 4-step layer loop every 12 steps:
+
+```
+bd@!.. | sd@!... ~> "drums"
+```
+
+```
+step  1 2 3 4 5 6 7 8 9 10 11 12
+bd    x . . x . . x . . x  .  .
+sd    x . . . x . . . x .  .  .
+```
+
+A loop longer than 256 steps is an error.
+
+### 9. Changing each cycle
+Each loop of a pattern is a cycle, numbered from 0. These change a pattern
+from one cycle to the next:
+
+| Expression | Cycles 0, 1, 2, 3 |
+|-|-|
+| `<36, 38>@!` | 36, 38, 36, 38 |
+| `<36, <38, 42> >@!` | 36, 38, 36, 42 |
+| `every 3 (+ 12) (bd@!)` | 48, 36, 36, 48 |
+| `sometimes (+ 12) (bd@!)` | 36 or 48, picked per cycle |
+| `bd@! + cycle` | 36, 37, 38, 39 |
+
+- `<a, b, c>` plays `a`, then `b`, then `c`, then `a` again. Elements can
+  be any type, but all the same one: `<bd@3:8, bd@5:8>` alternates
+  rhythms.
+- A nested `<>` advances only when chosen, as in Tidal. `>>` is rotate, so
+  close two with a space: `<a, <b, c> >`.
+- `every k f x` applies `f` on cycles 0, `k`, `2k`, and so on.
+- `sometimes f x` applies `f` on a random half of cycles. Like `?`, the
+  picks are the same every time the program runs.
+- Only the chosen branch is evaluated.
+
+```
+#! Kick alternates density each bar; the snare shifts every 4th bar.
+kick  = <bd@3:8, bd@5:8>;
+snare = every 4 (>> 1) (sd@....!...);
+kick | snare | hh@!!!!!!!! ~> "drums"
+```
+
+### 10. Velocity and gate
+`vel` sets velocity, 0 to 127. `gate` sets how much of each step sounds, in
+percent: 50 is half a step, 200 holds into the next step. Defaults are 127
+and 100.
+
+| Expression | Per step |
+|-|-|
+| `hh@!!!! vel [127, 60]` | vel 127, 60, 127, 60 |
+| `[C2, G2]@!!!! gate [25, 100]` | gate 25%, 100%, 25%, 100% |
+| `bd@!! vel 90` | vel 90, 90 |
+
+- A melody gives one value per step, cycling. A rest uses one up, as with
+  `@`.
+- They bind looser than `+` and tighter than `|`: `[C4]@!! + 12 vel 80 |
+  sd@!` sets velocity on the first layer only. Values follow time order, so
+  set them before layering.
+- `gate` does not change the loop length. A note never sounds past the end
+  of its loop.
+- `(vel 60)` is a function, so it composes: `every 2 (vel 60) kick`.
+- `vel` and `gate` are keywords, so they cannot be used as names.
+
+```
+#! Accented hats, short bass notes.
+hats = hh@!!!!!!!! vel [127, 50, 80, 50];
+bass = [C2, Eb2, G2]@!.!!.!!. gate 40;
+(hats ~> "drums") | (bass ~> "303")
+```
+
+### 11. Polyrhythm and subdivision
+`a fit n` stretches or squeezes `a` to last exactly `n` steps.
+
+```
+#! 3 kicks against 4 hats in one bar.
+bd@!!! fit 4 | hh@!!!! ~> "drums"
+```
+
+```text
+ms    0      500    667    1000   1333   1500
+bd    x             x             x
+hh    x      x             x             x
+```
+
+`fit 1` divides one step, so a triplet can sit inside a sequence:
+
+```
+#! Kick, a snare triplet, kick.
+bd@!, sd@!!! fit 1, bd@! ~> "drums"
+```
+
+- `n` is 1 to 256.
+- Times round to the microsecond, but the last note always ends exactly at
+  `n` steps, so a fitted layer loops in whole steps.
+- `fit` binds like `**`: `bd@!!! fit 4 | hh@!!!!` fits only the kicks.
+
+### 12. Scales and chords
+`scale name degrees` turns scale degrees into semitones. Add a root to
+play them. `chord name` gives a chord's intervals. `stack intervals seq`
+plays one copy of `seq` per interval, all at once.
+
+| Expression | Result |
+|-|-|
+| `scale "minor" [0, 2, 4] + C4` | `[60, 63, 67]` |
+| `scale "major" [7, -1]` | `[12, -1]` |
+| `chord "maj" + C4` | `[60, 64, 67]` |
+
+```
+#! A minor line over block chords.
+line   = scale "minor" [0, 2, 4, 6, 4, 2]@!!!!!! + A3;
+chords = stack (chord "min") ([A2, D3]@!..!..);
+line | chords ~> "303"
+```
+
+- Degrees past the end of a scale wrap by an octave: in a 7-note scale, 7
+  is 12 and -1 is -1.
+- Scales: `major`, `minor`, `dorian`, `phrygian`, `lydian`, `mixolydian`,
+  `locrian`, `harmonicMinor`, `melodicMinor`, `majPent`, `minPent`,
+  `whole`, `chromatic`.
+- Chords: `maj`, `min`, `dim`, `aug`, `sus2`, `sus4`, `maj7`, `dom7`,
+  `min7`.
+- Names follow Tidal. Unknown names are an error that lists the valid ones.
+- A melody of a chord plays as an arpeggio: `(chord "maj" + C4)@!!!`.
+- `scale <"major", "minor"> [0, 2, 4]` changes the scale each cycle.
+
+### 13. Comments
 `#!` starts a comment that runs to the end of the line.
 
 ```
@@ -360,6 +496,7 @@ notes@!.!! .!!. !.!. !!.! ~> "303"
 | `!`, `.` | Beat, rest (one step each) |
 | `60` | Number (scalar) |
 | `[60, 62]`, `[60]`, `[]` | Melody. A trailing `,` is allowed |
+| `<a, b>` | One element per cycle. A trailing `,` is allowed |
 | `C4`, `c#4`, `Bb3` | Note name, scientific pitch: `C4` is 60. Case insensitive. `C0` to `G9` |
 | `"drums"` | String |
 | `#! ...` | Comment to end of line |
@@ -380,6 +517,8 @@ left.
 | `a , b` | Concatenate melodies, rhythms or sequences |
 | `a or b`, `a xor b`, `a and b` | Step-wise logic on rhythms |
 | `a ** n` | Repeat |
+| `a fit n` | Rescale a sequence to exactly `n` steps |
+| `a vel v`, `a gate g` | Velocity 0-127; percent of each step that sounds, 1-10000 |
 | `a << n`, `a >> n` | Rotate left, right (sequences: by steps) |
 | `~a`, `'a` | Invert rhythm, reverse |
 | `a + b`, `a - b` | Add, subtract (sequences: transpose) |
@@ -387,7 +526,7 @@ left.
 | `a @ b` | Map a note or melody onto a rhythm: `bd@3:8` |
 | `a : b`, `a : b : n` | Euclidean rhythm: `3:8`; shifted left by `n`: `3:8:1` |
 | `a lcm b`, `a gcd b` | Least common multiple, greatest common divisor |
-| `a ? b` | Choose one of `a` and `b` |
+| `a ? b` | Choose one of `a` and `b`, again each cycle |
 | `-a` | Negate |
 | `a++`, `a--` | Increment, decrement |
 | `f a b` | Call: `(f a) b` |

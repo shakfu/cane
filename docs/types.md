@@ -53,6 +53,10 @@ error. Generated from `CANE_TYPE_REMAP` in `include/cane/passes.hpp`.
 | `tail a` (builtin) | melody |  | melody |
 | `take n a` (builtin) | melody | scalar | melody |
 | `drop n a` (builtin) | melody | scalar | melody |
+| `scale name a` (builtin) | melody | string | melody |
+| `scale name a` (builtin) | scalar | string | scalar |
+| `chord a` (builtin) | string |  | melody |
+| `stack m a` (builtin) | sequence | melody | sequence |
 | `a << b` | rhythm | scalar | rhythm |
 | `a >> b` | rhythm | scalar | rhythm |
 | `a ** b` | rhythm | scalar | rhythm |
@@ -74,6 +78,11 @@ error. Generated from `CANE_TYPE_REMAP` in `include/cane/passes.hpp`.
 | `a + b` | sequence | scalar | sequence |
 | `a - b` | sequence | scalar | sequence |
 | `a ** b` | sequence | scalar | sequence |
+| `a vel b` | sequence | scalar | sequence |
+| `a vel b` | sequence | melody | sequence |
+| `a gate b` | sequence | scalar | sequence |
+| `a gate b` | sequence | melody | sequence |
+| `a fit b` | sequence | scalar | sequence |
 | `a << b` | sequence | scalar | sequence |
 | `a >> b` | sequence | scalar | sequence |
 | `'a` | sequence |  | sequence |
@@ -88,6 +97,15 @@ error. Generated from `CANE_TYPE_REMAP` in `include/cane/passes.hpp`.
 | `a , b` | pattern | sequence | pattern |
 | `a , b` | sequence | pattern | pattern |
 | `a ~> b` | pattern | string | pattern |
+
+These take any type `T`, and are not in the generated table:
+
+| Operator | Arguments | Result |
+|-|-|-|
+| `<a, b, ...>` | every element `T` | `T` |
+| `every k f x` (builtin) | `k` scalar; `x` and `f x` both `T` | `T` |
+| `sometimes f x` (builtin) | `x` and `f x` both `T` | `T` |
+| `cycle` (builtin) | | scalar |
 
 `x = a` has the type of `a`. A call `f a` has the type of `f`'s body with
 `a` in place of its parameter.

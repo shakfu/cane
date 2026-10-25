@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <ranges>
 #include <string_view>
 #include <vector>
 
@@ -363,6 +364,49 @@ namespace cane {
 					}
 
 					return melody;
+				} break;
+
+				// `<a, b>` picks one element per cycle. Parsed like a melody,
+				// but kept as a list of nodes so elements can be any type.
+				case SymbolKind::LeftAngle: {
+					lx.discard();  // Skip `<`
+
+					auto element_bp =
+						binding_power(SymbolKind::Concatenate)->right;
+
+					std::vector<BoxNode> elements;
+
+					while (not lx.peek_is_kind(SymbolKind::RightAngle)) {
+						elements.push_back(parse_expression(element_bp));
+
+						if (not lx.discard_if_kind(SymbolKind::Concatenate)) {
+							break;
+						}
+					}
+
+					if (not lx.discard_if_kind(SymbolKind::RightAngle)) {
+						cane::report(ReportKind::Syntactical, "expected `>`");
+					}
+
+					cane::report_if(
+						elements.empty(),
+						ReportKind::Syntactical,
+						"`<>` needs at least one element"
+					);
+
+					BoxNode list = nullptr;
+
+					for (auto& element: elements | std::views::reverse) {
+						list = std::make_shared<Node>(
+							SymbolKind::Alternate,
+							symbol.sv,
+							TypeKind::None,
+							element,
+							list
+						);
+					}
+
+					return list;
 				} break;
 
 				case SymbolKind::Function: {

@@ -21,13 +21,15 @@ namespace {
 		if (const auto* seq = std::get_if<cane::Sequence>(&value)) {
 			for (const auto& ev: *seq) {
 				std::println(
-					"{:>6} ms  ch {:>2}  note {:>3}  {}",
+					"{:>6} ms  ch {:>2}  note {:>3}  vel {:>3}  gate {:>3}%  {}",
 					std::chrono::duration_cast<std::chrono::milliseconds>(
 						ev.timestamp
 					)
 						.count(),
 					static_cast<int>(ev.channel),
 					static_cast<int>(ev.note),
+					static_cast<int>(ev.velocity),
+					ev.gate,
 					ev.kind
 				);
 			}
@@ -51,7 +53,12 @@ namespace {
 			print_value(result.value);
 
 			if (player != nullptr and result.type == cane::TypeKind::Pattern) {
-				player->play(std::get<cane::Sequence>(result.value), loop);
+				player->play(
+					[at = result.at](cane::Scalar n) {
+						return std::get<cane::Sequence>(at(n));
+					},
+					loop
+				);
 			}
 
 			return result;

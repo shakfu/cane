@@ -9,6 +9,49 @@ Changes since the fork from
 `b4ce055`. The original is archived.
 
 ### Added
+- Each loop is a cycle: the player evaluates the program again for every
+  loop, one cycle ahead. The builtin `cycle` counts loops from 0 and keeps
+  counting across new patterns, so bar-aligned changes stay aligned after
+  an edit. A cycle that fails to evaluate is reported and the previous one
+  repeats. Design: `docs/dev/cycles.md`.
+- `<a, b, c>` plays one element per cycle. `every k f x` applies `f` on
+  cycles 0, `k`, `2k`, ...; `sometimes f x` on a seeded half. Each takes
+  any type and evaluates only the chosen branch.
+
+  ```
+  <bd@3:8, bd@5:8> | every 4 (>> 1) (sd@....!...) ~> "drums"
+  ```
+
+  A nested `<>` advances only when chosen, so `<a, <b, c> >` plays
+  `a b a c`, as in Tidal; flat indexing never plays `b`. A nested close
+  needs a space, because `>>` lexes as rotate. Reading `>>` as two closes
+  would force parentheses around rotate inside an element.
+- `a vel v` sets velocity (0-127) and `a gate g` the percent of each step
+  that sounds (1-10000), from a scalar or a melody of per-step values.
+  Printed events show both.
+
+  ```
+  hh@!!!!!!!! vel [127, 50, 80, 50] | [C2, G2]@!!!! gate 40
+  ```
+
+  The gate is stored apart from the step duration, because the duration
+  sets the loop length. A note-off past the loop end moves to it; wrapped
+  into the next loop, it would be lost on a pattern change and leave the
+  note sounding.
+- `a fit n` rescales a sequence to exactly `n` steps (1-256): polyrhythm
+  with `bd@!!! fit 4 | hh@!!!!`, subdivision with `bd@!, sd@!!! fit 1`.
+  Each time is scaled from the original, so the last end lands exactly on
+  `n` steps, which layering by LCM needs. It binds like `**`, not just
+  above `|` as `docs/dev/looping.md` proposed, so it can fit one part of a
+  concatenation.
+- Builtins `scale name degrees` (degrees to semitones, wrapping by
+  octave), `chord name` (intervals as a melody) and `stack intervals seq`
+  (one copy of `seq` per interval, sounding together). Names follow Tidal.
+
+  ```
+  scale "minor" [0, 2, 4] + C4             #! [60, 63, 67]
+  stack (chord "min") ([A2, D3]@!..!..)    #! block chords
+  ```
 - CMake build with presets (`debug`, `release`, `sanitize`), wrapped by a
   `Makefile`. `make test` runs 11 tests.
 - MIDI output via libremidi, looping at 120 BPM. A new pattern starts at the
@@ -45,6 +88,16 @@ Changes since the fork from
   "internal error: unable to evaluate".
 
 ### Changed
+- `|` repeats each layer to the LCM of the layer lengths, so each keeps
+  its own period (polymeter). A shorter layer used to play once per loop
+  and then fall silent. Cycling to the longest layer instead would restart
+  a 3-step layer every 4 steps. Loops over 256 steps are an error, because
+  a new pattern waits for the current loop to end.
+- `?` picks again each cycle, seeded by the cycle number, so a program
+  always plays the same picks. It first always picked the same side, then
+  used `std::random_device`, which fixed one pick for every loop.
+- `vel`, `gate` and `fit` are keywords, so they can no longer be binding
+  names.
 - `name = value` replaces `let name value`. `let` implies a constant.
 - `note@rhythm` replaces `rhythm @ note`, and binds tighter than every
   operator but `:`, so `bd@3:8` needs no parentheses. A `bd:3:8` form was
@@ -66,10 +119,11 @@ Changes since the fork from
 - Docs moved from `doc/` to `docs/`; development notes are in `docs/dev/`.
 
 ### Fixed
+- Sequence `a, b` started `b` at `a`'s last start time, not its end, so
+  `bd@!., sd@!!` played `sd` on `bd`'s rest.
 - Printing a sequence recursed until the stack overflowed.
 - `melody @ rhythm` read the melody as a scalar.
 - Melody-scalar `-` and `/` swapped their operands.
-- `?` used an unseeded generator and always picked the same side.
 - Sequence `*` and `/` scaled durations but not start times, so events
   overlapped or left gaps.
 - `/` bound tighter than `*`, and `and` tighter than `or`.

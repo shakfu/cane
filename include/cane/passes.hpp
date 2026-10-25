@@ -4,6 +4,7 @@
 #include <charconv>
 #include <memory>
 #include <print>
+#include <random>
 
 #include <unordered_set>
 #include <unordered_map>
@@ -732,6 +733,39 @@ namespace cane {
 			return { false, TypeKind::None, SymbolKind::None };
 		}
 
+		// Any type, as long as the branches agree. A `None` operand is not yet
+		// known, e.g. a parameter, and is checked once called.
+		auto known = [](TypeKind t) { return t != TypeKind::None; };
+
+		switch (node->kind) {
+			case SymbolKind::Alternate:
+				return {
+					known(lhs) and (node->rhs == nullptr or lhs == rhs), lhs, node->kind
+				};
+
+			case SymbolKind::Either:
+				if (known(lhs) and known(rhs) and lhs != rhs) {
+					cane::report(
+						ReportKind::Type,
+						"`f x` is {} but `x` is {}: `f` must keep the type",
+						lhs,
+						rhs
+					);
+				}
+
+				return { known(lhs) and lhs == rhs, lhs, node->kind };
+
+			case SymbolKind::Every:
+				return {
+					lhs == TypeKind::Scalar and known(rhs), rhs, node->kind
+				};
+
+			case SymbolKind::Sometimes:
+				return { known(lhs), lhs, node->kind };
+
+			default: break;
+		}
+
 		// clang-format off
 
 		// If the types don't match, it just means this overload of
@@ -794,6 +828,10 @@ namespace cane {
  		CANE_TYPE_REMAP(Append, Melody, Scalar, Melody, AppendMelodyScalar);
 
  		CANE_TYPE_REMAP(Head, Melody, None, Scalar, HeadMelody);
+ 		CANE_TYPE_REMAP(Scale, Melody, String, Melody, ScaleMelodyString);
+ 		CANE_TYPE_REMAP(Scale, Scalar, String, Scalar, ScaleScalarString);
+ 		CANE_TYPE_REMAP(Chord, String, None, Melody, ChordString);
+ 		CANE_TYPE_REMAP(Stack, Sequence, Melody, Sequence, StackSequenceMelody);
  		CANE_TYPE_REMAP(Tail, Melody, None, Melody, TailMelody);
  		CANE_TYPE_REMAP(Take, Melody, Scalar, Melody, TakeMelodyScalar);
  		CANE_TYPE_REMAP(Drop, Melody, Scalar, Melody, DropMelodyScalar);
@@ -831,6 +869,12 @@ namespace cane {
  		CANE_TYPE_REMAP(LeftShift, Sequence, Scalar, Sequence, LeftShiftSequenceScalar);
  		CANE_TYPE_REMAP(RightShift, Sequence, Scalar, Sequence, RightShiftSequenceScalar);
  		CANE_TYPE_REMAP(Reverse, Sequence, None, Sequence, ReverseSequence);
+
+ 		CANE_TYPE_REMAP(Velocity, Sequence, Scalar, Sequence, VelocitySequenceScalar);
+ 		CANE_TYPE_REMAP(Velocity, Sequence, Melody, Sequence, VelocitySequenceMelody);
+ 		CANE_TYPE_REMAP(Gate, Sequence, Scalar, Sequence, GateSequenceScalar);
+ 		CANE_TYPE_REMAP(Gate, Sequence, Melody, Sequence, GateSequenceMelody);
+ 		CANE_TYPE_REMAP(Fit, Sequence, Scalar, Sequence, FitSequenceScalar);
 
  		CANE_TYPE_REMAP(Send, Sequence, String, Pattern, SendSequenceString);
 
@@ -897,6 +941,11 @@ namespace cane {
 			case SymbolKind::Nil: {
 				new_node->type = TypeKind::Melody;
 				return { TypeKind::Melody, new_node, bindings };
+			} break;
+
+			case SymbolKind::Cycle: {
+				new_node->type = TypeKind::Scalar;
+				return { TypeKind::Scalar, new_node, bindings };
 			} break;
 
 			case SymbolKind::Function: {
@@ -1157,7 +1206,25 @@ namespace cane {
 
 	struct EvalEnvironment {
 		std::unordered_map<std::string_view, const BoxNode> bindings;
+		Scalar cycle = 0;
+
+		// Shared by copies, so each `?` in a cycle takes the next draw.
+		std::shared_ptr<std::mt19937_64> rng = std::make_shared<std::mt19937_64>();
 	};
+
+	// The same seed and cycle always give the same draws.
+	inline EvalEnvironment cycle_environment(Configuration cfg, Scalar cycle) {
+		auto n = static_cast<uint64_t>(cycle);
+
+		std::seed_seq seq {
+			static_cast<uint32_t>(cfg.seed),
+			static_cast<uint32_t>(cfg.seed >> 32),
+			static_cast<uint32_t>(n),
+			static_cast<uint32_t>(n >> 32),
+		};
+
+		return { {}, cycle, std::make_shared<std::mt19937_64>(seq) };
+	}
 
 	[[nodiscard]] inline Value
 	pass_evaluator_walk(Configuration cfg, EvalEnvironment env, BoxNode node);
@@ -1231,6 +1298,52 @@ namespace cane {
 				return Melody {};
 			} break;
 
+			case SymbolKind::Cycle: {
+				return env.cycle;
+			} break;
+
+			// Only the chosen branch is evaluated, so `?` draws and errors in
+			// the other one do not happen.
+
+			// The chosen element sees its own cycle count, `n / len`, so
+			// `<a, <b, c>>` plays `a b a c`, as in Tidal.
+			case SymbolKind::Alternate: {
+				std::vector<BoxNode> elements;
+
+				for (auto it = node; it != nullptr; it = it->rhs) {
+					elements.push_back(it->lhs);
+				}
+
+				auto len = static_cast<Scalar>(elements.size());
+				auto inner = env;
+				inner.cycle = env.cycle / len;
+
+				return pass_evaluator_walk(
+					cfg, inner, elements.at(static_cast<size_t>(env.cycle % len))
+				);
+			} break;
+
+			// `f x` on cycles 0, k, 2k, ..., else `x`, as in Tidal.
+			case SymbolKind::Every: {
+				auto k = std::get<Scalar>(pass_evaluator_walk(cfg, env, node->lhs));
+
+				if (k <= 0) {
+					cane::report(ReportKind::Eval, "`every {}` needs k > 0", k);
+				}
+
+				auto branches = node->rhs;
+				return pass_evaluator_walk(
+					cfg, env, env.cycle % k == 0 ? branches->lhs : branches->rhs
+				);
+			} break;
+
+			case SymbolKind::Sometimes: {
+				auto branches = node->lhs;
+				return pass_evaluator_walk(
+					cfg, env, ((*env.rng)() & 1) ? branches->lhs : branches->rhs
+				);
+			} break;
+
 			case SymbolKind::Call: {
 				cane::report(ReportKind::Semantic, "unresolved call");
 				return std::monostate {};
@@ -1266,6 +1379,14 @@ namespace cane {
 
 		auto count = [](const Value& n) {
 			return static_cast<size_t>(std::max(std::get<Scalar>(n), Scalar { 0 }));
+		};
+
+		auto values = [](const Value& v) {
+			if (const auto* s = std::get_if<Scalar>(&v)) {
+				return Melody { *s };
+			}
+
+			return std::get<Melody>(v);
 		};
 
 		switch (node->op) {
@@ -1339,6 +1460,32 @@ namespace cane {
 			case SymbolKind::TailPattern:
 				return tail(std::move(std::get<Sequence>(lhs)), 1);
 
+			// Harmony
+			case SymbolKind::ScaleMelodyString: {
+				const auto& steps = lookup_steps(scales(), "scale", std::get<String>(rhs));
+				auto melody = std::get<Melody>(std::move(lhs));
+
+				for (auto& d: melody) {
+					d = scale_degree(steps, d);
+				}
+
+				return melody;
+			} break;
+
+			case SymbolKind::ScaleScalarString:
+				return scale_degree(
+					lookup_steps(scales(), "scale", std::get<String>(rhs)),
+					std::get<Scalar>(lhs)
+				);
+
+			case SymbolKind::ChordString: {
+				const auto& steps = lookup_steps(chords(), "chord", std::get<String>(lhs));
+				return Melody(steps.begin(), steps.end());
+			} break;
+
+			case SymbolKind::StackSequenceMelody:
+				return stack(std::get<Sequence>(lhs), std::get<Melody>(rhs));
+
 			// Take/Drop. A negative count is 0, as in Haskell.
 			case SymbolKind::TakeMelodyScalar:
 				return head(std::move(std::get<Melody>(lhs)), count(rhs));
@@ -1394,8 +1541,7 @@ namespace cane {
 
 			case SymbolKind::RandomScalarScalar:
 				return choice(
-					std::move(std::get<Scalar>(lhs)),
-					std::move(std::get<Scalar>(rhs))
+					std::get<Scalar>(lhs), std::get<Scalar>(rhs), *env.rng
 				);
 
 			// Rotate vectors
@@ -1521,9 +1667,11 @@ namespace cane {
 			case SymbolKind::LayerPatternPattern:
 			case SymbolKind::LayerPatternSequence:
 			case SymbolKind::LayerSequencePattern:
-				return concatenate(
+				return layer(
 					std::move(std::get<Sequence>(lhs)),
-					std::move(std::get<Sequence>(rhs))
+					std::move(std::get<Sequence>(rhs)),
+					MINUTE / cfg.bpm,
+					MAX_LOOP_STEPS
 				);
 
 			// Logical
@@ -1588,6 +1736,42 @@ namespace cane {
 
 			case SymbolKind::ReverseSequence:
 				return reverse_sequence(std::move(std::get<Sequence>(lhs)));
+
+			case SymbolKind::FitSequenceScalar: {
+				auto n = std::get<Scalar>(rhs);
+
+				// Bounds `t * target` in `fit` well below int64 max.
+				if (n <= 0 or n > MAX_LOOP_STEPS) {
+					cane::report(
+						ReportKind::Eval, "`fit {}` needs 1 to {} steps", n, MAX_LOOP_STEPS
+					);
+				}
+
+				return fit(std::move(std::get<Sequence>(lhs)), n * (MINUTE / cfg.bpm));
+			} break;
+
+			// Controls. A scalar is a one-value melody.
+			case SymbolKind::VelocitySequenceScalar:
+			case SymbolKind::VelocitySequenceMelody:
+				return assign_each(
+					std::move(std::get<Sequence>(lhs)),
+					values(rhs),
+					"vel",
+					0,
+					127,
+					[](Event& ev, Scalar v) { ev.velocity = static_cast<uint8_t>(v); }
+				);
+
+			case SymbolKind::GateSequenceScalar:
+			case SymbolKind::GateSequenceMelody:
+				return assign_each(
+					std::move(std::get<Sequence>(lhs)),
+					values(rhs),
+					"gate",
+					1,
+					10'000,  // 100 steps; note-offs stop at the loop end anyway.
+					[](Event& ev, Scalar v) { ev.gate = static_cast<uint32_t>(v); }
+				);
 
 			// Mapping
 			case SymbolKind::MapScalarRhythm: {

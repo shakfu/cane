@@ -208,6 +208,8 @@ namespace cane {
 	X(Identifier, "identifier", Literal, None, None) \
 	/* Not lexed: the empty melody that `[a, b]` appends to. */ \
 	X(Nil, "[]", Literal, None, None) \
+	/* Not lexed: the builtin `cycle`, the current cycle number. */ \
+	X(Cycle, "cycle", Literal, None, None) \
 \
 	X(LeftParen, "(", Primary, None, None) \
 	X(RightParen, ")", None, None, None) \
@@ -217,6 +219,17 @@ namespace cane {
 \
 	X(LeftBracket, "[", Primary, None, None) \
 	X(RightBracket, "]", None, None, None) \
+\
+	X(LeftAngle, "<", Primary, None, None) \
+	X(RightAngle, ">", None, None, None) \
+\
+	/* `<a, b>`: element `lhs`, then the rest of the list in `rhs`. */ \
+	X(Alternate, "<>", Primary, None, None) \
+	/* Not lexed: bodies of `every` and `sometimes`. `Either` holds both */ \
+	/* branches, `f x` and `x`. */ \
+	X(Every, "every", Primary, None, None) \
+	X(Sometimes, "sometimes", Primary, None, None) \
+	X(Either, "either", Primary, None, None) \
 \
 	/* Operators */ \
 	X(Block, ";", Infix, Incr, Right) \
@@ -234,6 +247,9 @@ namespace cane {
 	X(And, "and", Infix, Last, Left) \
 \
 	X(Repeat, "**", Infix, Incr, Left) \
+	X(Velocity, "vel", Infix, Last, Left) \
+	X(Gate, "gate", Infix, Last, Left) \
+	X(Fit, "fit", Infix, Last, Left) \
 \
 	X(LeftShift, "<<", Infix, Incr, Left) \
 	X(RightShift, ">>", Infix, Last, Left) \
@@ -260,6 +276,9 @@ namespace cane {
 	X(Head, "head", Prefix, Incr, Right) \
 	X(Tail, "tail", Prefix, Last, Right) \
 	X(Take, "take", Infix, Last, Left) \
+	X(Scale, "scale", Infix, Last, Left) \
+	X(Stack, "stack", Infix, Last, Left) \
+	X(Chord, "chord", Prefix, Last, Right) \
 	X(Drop, "drop", Infix, Last, Left) \
 	X(Append, "[ ]", Infix, Last, Left) \
 \
@@ -326,6 +345,10 @@ namespace cane {
 	X(ConcatenateMelodyMelody, "melody concatenate", Operator, None, None) \
 \
 	X(HeadMelody, "melody head", Operator, None, None) \
+	X(ScaleMelodyString, "melody scale", Operator, None, None) \
+	X(ScaleScalarString, "scalar scale", Operator, None, None) \
+	X(ChordString, "string chord", Operator, None, None) \
+	X(StackSequenceMelody, "sequence stack", Operator, None, None) \
 	X(TailMelody, "melody tail", Operator, None, None) \
 	X(TakeMelodyScalar, "melody take", Operator, None, None) \
 	X(DropMelodyScalar, "melody drop", Operator, None, None) \
@@ -361,6 +384,11 @@ namespace cane {
 	X(LeftShiftSequenceScalar, "sequence lshift", Operator, None, None) \
 	X(RightShiftSequenceScalar, "sequence rshift", Operator, None, None) \
 	X(ReverseSequence, "sequence reverse", Operator, None, None) \
+	X(VelocitySequenceScalar, "sequence vel", Operator, None, None) \
+	X(VelocitySequenceMelody, "sequence vel", Operator, None, None) \
+	X(GateSequenceScalar, "sequence gate", Operator, None, None) \
+	X(GateSequenceMelody, "sequence gate", Operator, None, None) \
+	X(FitSequenceScalar, "sequence fit", Operator, None, None) \
 	X(DivSequenceScalar, "sequence div", Operator, None, None) \
 \
 	X(TailSequence, "sequence tail", Operator, None, None) \

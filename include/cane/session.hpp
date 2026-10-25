@@ -5,6 +5,7 @@
 #include <deque>
 #include <filesystem>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <system_error>
@@ -60,11 +61,42 @@ namespace cane {
 			return entry(name, function("%n", function("%x", body)));
 		};
 
+		auto node = [](SymbolKind kind, std::string_view sv, BoxNode lhs, BoxNode rhs) {
+			return std::make_shared<Node>(kind, sv, TypeKind::None, lhs, rhs);
+		};
+
+		// Both branches of `every` and `sometimes`: `f x`, then `x`.
+		auto either = [&](std::string_view sv) {
+			return node(
+				SymbolKind::Either,
+				sv,
+				node(SymbolKind::Call, sv, param("%f"), param("%x")),
+				param("%x")
+			);
+		};
+
+		// `every k f x`, `sometimes f x`.
+		auto every = node(SymbolKind::Every, "every", param("%k"), either("every"));
+		auto sometimes =
+			node(SymbolKind::Sometimes, "sometimes", either("sometimes"), nullptr);
+
 		return {
+			entry(
+				"every",
+				function("%k", function("%f", function("%x", every)))
+			),
+			entry("sometimes", function("%f", function("%x", sometimes))),
+			entry(
+				"cycle",
+				std::make_shared<Node>(SymbolKind::Cycle, "cycle", TypeKind::Scalar)
+			),
 			unary("abs", SymbolKind::Abs),
 			unary("head", SymbolKind::Head),
 			unary("tail", SymbolKind::Tail),
 			binary("take", SymbolKind::Take),
+			binary("scale", SymbolKind::Scale),
+			binary("stack", SymbolKind::Stack),
+			unary("chord", SymbolKind::Chord),
 			binary("drop", SymbolKind::Drop),
 		};
 	}
@@ -77,8 +109,10 @@ namespace cane {
 		BindingEnvironment bindings = builtins();
 
 		// Nodes and bindings are views into source text, so all of it is kept.
-		// A deque never relocates its elements.
-		std::deque<std::string> sources;
+		// A deque never relocates its elements. Shared with each `Result::at`,
+		// which may outlive the session on the player thread.
+		std::shared_ptr<std::deque<std::string>> sources =
+			std::make_shared<std::deque<std::string>>();
 
 		std::mutex mutex;
 
@@ -88,28 +122,37 @@ namespace cane {
 		}
 
 		struct Result {
-			Value value;
+			Value value;    // Cycle 0.
 			TypeKind type;  // Only a Pattern is playable.
+
+			// The value at any cycle. Safe to call from another thread.
+			std::function<Value(Scalar cycle)> at;
 		};
 
 		// Bindings are only committed once evaluation succeeds.
 		Result eval(std::string src) {
 			std::scoped_lock lock { mutex };
 
-			cane::Parser parser { sources.emplace_back(std::move(src)) };
+			cane::Parser parser { sources->emplace_back(std::move(src)) };
 			auto root = parser.parse();
 
 			if (not root.has_value()) {
-				return { std::monostate {}, TypeKind::None };
+				return { std::monostate {}, TypeKind::None, {} };
 			}
 
 			auto valid = cane::pass_validate(cfg, root.value());
 			auto [resolved, env] = cane::resolve_bindings(cfg, valid, bindings);
 			auto typed = cane::pass_type_resolution(cfg, resolved);
-			auto value = cane::pass_evaluator_walk(cfg, {}, typed);
+			auto at = [cfg = cfg, typed, sources = sources](Scalar cycle) {
+				return cane::pass_evaluator_walk(
+					cfg, cycle_environment(cfg, cycle), typed
+				);
+			};
+
+			auto value = at(0);
 
 			bindings = std::move(env);
-			return { std::move(value), typed->type };
+			return { std::move(value), typed->type, std::move(at) };
 		}
 	};
 

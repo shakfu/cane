@@ -316,6 +316,18 @@ namespace cane {
 				symbol.kind = SymbolKind::GCD;
 			}
 
+			else if (symbol.sv == CANE_CSTR("vel")) {
+				symbol.kind = SymbolKind::Velocity;
+			}
+
+			else if (symbol.sv == CANE_CSTR("gate")) {
+				symbol.kind = SymbolKind::Gate;
+			}
+
+			else if (symbol.sv == CANE_CSTR("fit")) {
+				symbol.kind = SymbolKind::Fit;
+			}
+
 			// Operators
 			else if (symbol.sv == CANE_CSTR("or")) {
 				symbol.kind = SymbolKind::Or;
@@ -453,6 +465,12 @@ namespace cane {
 				})
 				.or_else([&] {
 					return produce_str(SymbolKind::RightShift, CANE_CSTR(">>"));
+				})
+				.or_else([&] {
+					return produce_str(SymbolKind::LeftAngle, CANE_CSTR("<"));
+				})
+				.or_else([&] {
+					return produce_str(SymbolKind::RightAngle, CANE_CSTR(">"));
 				});
 		}
 

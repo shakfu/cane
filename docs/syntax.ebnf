@@ -11,7 +11,7 @@ note       = ? a-g or A-G ? , [ "#" | "b" ] , digit ;
 string     = '"' , { ? any character except '"' ? } , '"' ;
 identifier = ( letter | "_" ) , { letter | digit | "_" } ;  (* not a keyword or note *)
 
-keyword = "lcm" | "gcd" | "or" | "xor" | "and"
+keyword = "lcm" | "gcd" | "or" | "xor" | "and" | "vel" | "gate" | "fit"
         | type ;
 
 type = "num" | "number" | "str" | "string" | "rhy" | "rhythm"
@@ -24,6 +24,10 @@ step   = "!" | "." ;
 (* Elements bind tighter than `,`. A trailing `,` is allowed. *)
 melody = "[" , [ expression , { "," , expression } , [ "," ] ] , "]" ;
 
+(* One element per cycle. Same element rules as a melody, but at least one.
+   `>>` lexes as rotate, so a nested close needs a space: `<a, <b> >`. *)
+alternation = "<" , expression , { "," , expression } , [ "," ] , ">" ;
+
 (* Program *)
 program = [ expression , [ ";" ] ] ;
 
@@ -35,7 +39,7 @@ expression = primary
                 (* binding; with parameters, a function *)
            | expression , expression ;  (* call: `f a`, binds tightest *)
 
-primary = number | string | identifier | rhythm | melody
+primary = number | string | identifier | rhythm | melody | alternation
         | "(" , expression , ")"
         | "(" , infix , [ expression ] , ")"  (* section; `(- a)` negates *)
         | "(" , expression , infix , ")"      (* section *)
@@ -46,6 +50,6 @@ postfix = "++" | "--" ;
 
 infix = ";" | "~>" | "|" | "," | "@"
       | "or" | "xor" | "and"
-      | "**" | "<<" | ">>"
+      | "**" | "vel" | "gate" | "fit" | "<<" | ">>"
       | "+" | "-" | "*" | "/"
       | ":" | "lcm" | "gcd" | "?" ;  (* `;` and `=` group right to left *)

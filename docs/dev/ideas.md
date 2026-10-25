@@ -61,9 +61,7 @@ combinations are in `docs/types.md`.
 - Random choice over melodies, rhythms, sequences and patterns.
 - `,` on patterns concatenates whole patterns. The plan concatenated them
   pair-wise, per layer.
-- `a , b` on sequences starts `b` at the last start time of `a`, not its
-  end. See `looping.md`.
-- Polymeter and polyrhythm. See `looping.md`.
+- `--seed`, `--cycles`. See `cycles.md`.
 
 ## Decisions
 - `=` replaced `let`. `@` takes the note first: `kick=bd@3:8`. It binds
