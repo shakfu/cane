@@ -1,29 +1,25 @@
 # Design notes
 
-The original design plan, and where the implementation now differs.
-User-facing docs: `README.md`, `docs/types.md`, `docs/syntax.ebnf`.
+The original design plan, and where the implementation now differs. User-facing docs: `README.md`, `docs/types.md`, `docs/syntax.ebnf`.
 
 ## Architecture
-The plan: one thread sequences the current loop; another compiles new
-expressions. Buffers swap at the end of a loop.
+
+The plan: one thread sequences the current loop; another compiles new expressions. Buffers swap at the end of a loop.
 
 Implemented:
-- Main thread: REPL, or file mode. Compiles each line via `Session::eval`
-  (`include/cane/session.hpp`).
+
+- Main thread: REPL, or file mode. Compiles each line via `Session::eval` (`include/cane/session.hpp`).
+
 - Player thread: loops the current `Schedule` (`include/cane/midi.hpp`).
-- Watcher thread (`--watch` only): polls the file every 100 ms and
-  evaluates it on change.
 
-Hand-off uses one queued slot, not two buffers. `Player::play` stores the
-next schedule. The player swaps it in at the end of the current loop. A
-second `play` before then replaces the first, so only the latest pattern
-plays. On stop, the player releases every sounding note.
+- Watcher thread (`--watch` only): polls the file every 100 ms and evaluates it on change.
 
-The planned "instructions" encoding is `Schedule`: MIDI messages with time
-offsets, plus the loop length. Note-offs sort before note-ons at the same
-time.
+Hand-off uses one queued slot, not two buffers. `Player::play` stores the next schedule. The player swaps it in at the end of the current loop. A second `play` before then replaces the first, so only the latest pattern plays. On stop, the player releases every sounding note.
+
+The planned "instructions" encoding is `Schedule`: MIDI messages with time offsets, plus the loop length. Note-offs sort before note-ons at the same time.
 
 ## User interface
+
 | Plan | Now |
 |-|-|
 | One MIDI channel per instance, `--channel` | Named channels in one program (`~> "drums"`). The name-to-channel map is fixed in `src/cane.cpp`: `drums` 10, `303` 12 |
@@ -31,19 +27,19 @@ time.
 | `--clock NAME`: follow an external clock; no internal clock | Internal clock only, fixed at 120 BPM |
 
 Open:
-- `--bpm`, then external clock: MIDI start/stop plus 24 clock pulses per
-  quarter note.
+
+- `--bpm`, then external clock: MIDI start/stop plus 24 clock pulses per quarter note.
+
 - Channel names from the command line or a config file.
-- Ctrl+C in file mode exits without releasing sounding notes.
+
 - Each compiler pass prints debug logs to stdout.
 
 ## Types
-The plan's five types exist, plus `String` for channel names. Typing is
-static. Operators are overloaded per type; there are no implicit
-coercions. `&` converts a scalar to a melody explicitly. The accepted
-combinations are in `docs/types.md`.
+
+The plan's five types exist, plus `String` for channel names. Typing is static. Operators are overloaded per type; there are no implicit coercions. `&` converts a scalar to a melody explicitly. The accepted combinations are in `docs/types.md`.
 
 ## Syntax: plan vs now
+
 | Plan | Now |
 |-|-|
 | `x => name`: bind and evaluate to `x` | `name = x; ...` |
@@ -55,42 +51,35 @@ combinations are in `docs/types.md`.
 | `seq * n`, `seq / n`: scale time relative to the parent | Scales timestamps and durations by `n`, in absolute time |
 
 ## Not yet implemented
+
 - Recursion: a function body cannot name the function.
-- Checking the type annotation in `\x -> T a`. It is parsed and dropped.
+
 - `**`, `<<`, `>>`, `'`, `+`, `-` on patterns: no type rule. Sequences have them.
+
 - Random choice over melodies, rhythms, sequences and patterns.
-- `,` on patterns concatenates whole patterns. The plan concatenated them
-  pair-wise, per layer.
+
+- `,` on patterns concatenates whole patterns. The plan concatenated them pair-wise, per layer.
+
 - `--seed`, `--cycles`. See `cycles.md`.
 
 ## Decisions
-- `=` replaced `let`. `@` takes the note first: `kick=bd@3:8`. It binds
-  tighter than everything except `:`, so transforms after it act on the
-  sequence (`sd@..!.**2`). Sequence `**`, `<<`, `>>`, `'`, `+`, `-` were
-  added for that. A brief `bd:3:8` form was dropped: rhythms are values, so
-  `bd:groove` or `bd:3` could not tell note from hits.
-- `|` replaced `$` for layering. In Haskell and Tidal, `$` is function
-  application, so `kick $ snare` read as "apply kick to snare".
-- `f x y = a` defines `f = \x -> \y -> a`. Binding resolution reduces each
-  call by substituting the argument into the body. The evaluator already
-  saw only inlined bindings, so a closure environment was not needed. Calls
-  inside a function body wait until that function is applied: there, an
-  argument may name a parameter that an inner function would capture.
-- Sections follow Haskell. `(- a)` negates, so `(-1):8` keeps working.
-  Absolute value is the builtin function `abs`, as in Haskell, so prefix
-  `+` is gone and `(+ a)` is unambiguous.
-- `head` takes only a melody and returns a number, as in Haskell. Rhythms,
-  sequences and patterns have no element type, so they use `take 1`.
-- Melodies are `[a, b]`, as in Haskell. `,` only concatenates, and `&`
-  (scalar to melody) is gone: `[60]` replaces it. Brackets were unused, so
-  `[60]` needs no trailing comma, unlike Python's `(60,)`.
-- `abs`, `head`, `tail`, `take` and `drop` are builtin functions, not keywords. They are
-  bindings made in `session.hpp`, so they can be passed and rebound like
-  user functions, and bind as calls: `head x , y` is `(head x) , y`. The left section `(a op)` is only the whole of the
-  parentheses: `(1 + 2 *)` is an error.
-- Calls bind tightest, as in Haskell: `f 3 + 1` is `(f 3) + 1`. They were
-  just above `,`, which made it `f (3 + 1)`.
-- `a:b:n` shifts a Euclidean rhythm left, matching Tidal's `bd(a,b,n)`,
-  so patterns copy across. It is `(a:b):n`, so `n` works on any rhythm.
-- Note names have no octave -1 (MIDI 0-11). `C-1` would make `e-1` (one-letter
-  binding minus 1) silently lex as a note. If needed, spell it `C_1`.
+
+- `=` replaced `let`. `@` takes the note first: `kick=bd@3:8`. It binds tighter than everything except `:`, so transforms after it act on the sequence (`sd@..!.**2`). Sequence `**`, `<<`, `>>`, `'`, `+`, `-` were added for that. A brief `bd:3:8` form was dropped: rhythms are values, so `bd:groove` or `bd:3` could not tell note from hits.
+
+- `|` replaced `$` for layering. In Haskell and Tidal, `$` is function application, so `kick $ snare` read as "apply kick to snare".
+
+- `f x y = a` defines `f = \x -> \y -> a`. Binding resolution reduces each call by substituting the argument into the body. The evaluator already saw only inlined bindings, so a closure environment was not needed. Calls inside a function body wait until that function is applied: there, an argument may name a parameter that an inner function would capture.
+
+- Sections follow Haskell. `(- a)` negates, so `(-1):8` keeps working. Absolute value is the builtin function `abs`, as in Haskell, so prefix `+` is gone and `(+ a)` is unambiguous.
+
+- `head` takes only a melody and returns a number, as in Haskell. Rhythms, sequences and patterns have no element type, so they use `take 1`.
+
+- Melodies are `[a, b]`, as in Haskell. `,` only concatenates, and `&` (scalar to melody) is gone: `[60]` replaces it. Brackets were unused, so `[60]` needs no trailing comma, unlike Python's `(60,)`.
+
+- `abs`, `head`, `tail`, `take` and `drop` are builtin functions, not keywords. They are bindings made in `session.hpp`, so they can be passed and rebound like user functions, and bind as calls: `head x , y` is `(head x) , y`. The left section `(a op)` is only the whole of the parentheses: `(1 + 2 *)` is an error.
+
+- Calls bind tightest, as in Haskell: `f 3 + 1` is `(f 3) + 1`. They were just above `,`, which made it `f (3 + 1)`.
+
+- `a:b:n` shifts a Euclidean rhythm left, matching Tidal's `bd(a,b,n)`, so patterns copy across. It is `(a:b):n`, so `n` works on any rhythm.
+
+- Note names have no octave -1 (MIDI 0-11). `C-1` would make `e-1` (one-letter binding minus 1) silently lex as a note. If needed, spell it `C_1`.

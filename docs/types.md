@@ -1,6 +1,7 @@
 # Types
 
 ## Primitives
+
 | Type | Annotation | Values |
 |-|-|-|
 | Scalar | `num`, `number` | Integers, e.g. `60`, or note names, e.g. `C4` |
@@ -13,8 +14,8 @@
 A program must evaluate to a pattern.
 
 ## Operator Types
-The type checker accepts exactly these combinations. Any other is a type
-error. Generated from `CANE_TYPE_REMAP` in `include/cane/passes.hpp`.
+
+The type checker accepts exactly these combinations. Any other is a type error. Generated from `CANE_TYPE_REMAP` in `include/cane/passes.hpp`.
 
 | Operator | `a` | `b` | Result |
 |-|-|-|-|
@@ -107,5 +108,4 @@ These take any type `T`, and are not in the generated table:
 | `sometimes f x` (builtin) | `x` and `f x` both `T` | `T` |
 | `cycle` (builtin) | | scalar |
 
-`x = a` has the type of `a`. A call `f a` has the type of `f`'s body with
-`a` in place of its parameter.
+`x = a` has the type of `a`. A call `f a` has the type of `f`'s body with `a` in place of its parameter.

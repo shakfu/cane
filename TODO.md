@@ -1,57 +1,29 @@
-- maybe try implicit call again?
-- do we need return type annotation? we can probably infer it after we just walk the body expression
--
+# TODO
 
-- add cmdline parsing for channels and bpm
-- add channel lookup map in environment
-- working function eval
-- assignments and lookups
-- layering operator
-  - concat needs to fix up keys in rhs
-  - layering doesnt need to fix up keys
-- patterns support concat and layering
-- mapping
-- add token for newlines specifically so we can have them be valid break points for statements, can be skipped like any other token with `take`
-- call discard_whitespace in every parser function
+## Critical
 
-- add two melodies together
-- head/tail operators
+None.
 
-- print/debug operator to view sequences
+## High
 
-- string_view of statement and other parent nodes should contain the extents of all those nodes. Basically the string view begin/end should include all expressions in the statement
+- Ctrl+C in file mode exits without releasing sounding notes, so they hang on the synth.
 
+- Syntax errors at end of input print no location. `1 +` reports "expected a primary expression or a prefix operator" with no line. Report the last line, without a column.
 
+- `--bpm` and channel names from the command line, e.g. `drums=10`. Both are fixed in `src/cane.cpp`: 120 BPM, `drums` 10, `303` 12.
 
+## Medium
 
+- The type annotation in `\x -> T a` is parsed and dropped, not checked. A wrong annotation passes silently.
 
+- Export a program's events to a MIDI file. `Schedule` already holds timed messages.
 
-------------------------------
+- A print operator that shows a value mid-expression, without changing it.
 
+- Per-expression eval tracing: print each node's source as it evaluates. For operators, print the source between the operands too.
 
+## Low
 
-- location at eof should be more clear (dont print a column number)
+- A parent node's `sv` should span all its children, so a statement's `sv` covers the whole statement.
 
-
-
-- how do we handle velocity? should we?
-  - an accent can be applied to a sequence which is just an array of numbers like a melody
-
-- sequences and patterns can be output to a midi channel by assigning it to a named channel
-  - for example: `!...!... @ 65 . 64 ~> "drums"`
-  - this can later be assigned an actual midi channel as a cli pair: `drums=0`
-
-- Debugging with per-expression logging
-  - We have access to location information in the AST so we can just print
-  the source as we eval
-  - For operator nodes, we can find print everything between the two symbols aswell
-
-- Allow typing a unique subset of characters as part of a keyword for shorthand
-
-- Cycles (as part of sequences) that allow alternating a sequence every bar
-  - A way to generate a progression by just altering a subset of the sequence that
-  rotates around every bar
-  - Maybe "choice" should do this instead of randomness
-
-- Evaluation pass that generates a list of events we can then serialise into
-a MIDI file
+- Accept a unique prefix of a keyword as shorthand.
