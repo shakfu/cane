@@ -26,14 +26,6 @@ The planned "instructions" encoding is `Schedule`: MIDI messages with time offse
 | `--device NAME` | `--port NAME` (exact or unique substring), `--virtual NAME`. Default: a virtual port `cane` |
 | `--clock NAME`: follow an external clock; no internal clock | Internal clock only, fixed at 120 BPM |
 
-Open:
-
-- `--bpm`, then external clock: MIDI start/stop plus 24 clock pulses per quarter note.
-
-- Channel names from the command line or a config file.
-
-- Each compiler pass prints debug logs to stdout.
-
 ## Types
 
 The plan's five types exist, plus `String` for channel names. Typing is static. Operators are overloaded per type; there are no implicit coercions. `&` converts a scalar to a melody explicitly. The accepted combinations are in `docs/types.md`.
@@ -49,18 +41,6 @@ The plan's five types exist, plus `String` for channel names. Typing is static. 
 | `[ a b ]`: layer sequences into a pattern | `a \| b` layers; `~> "name"` makes a pattern |
 | `melody @ rhythm`, `rhythm @ melody` | `note@rhythm` only, e.g. `bd@3:8` |
 | `seq * n`, `seq / n`: scale time relative to the parent | Scales timestamps and durations by `n`, in absolute time |
-
-## Not yet implemented
-
-- Recursion: a function body cannot name the function.
-
-- `**`, `<<`, `>>`, `'`, `+`, `-` on patterns: no type rule. Sequences have them.
-
-- Random choice over melodies, rhythms, sequences and patterns.
-
-- `,` on patterns concatenates whole patterns. The plan concatenated them pair-wise, per layer.
-
-- `--seed`, `--cycles`. See `cycles.md`.
 
 ## Decisions
 
